@@ -228,12 +228,12 @@ def check_deny_list(command: str) -> str | None:
 
 
 ### (?i) 忽略大小写
-### (?:^|[;&|()\n]) 匹配字符串的开头或者特定的分隔符号
+### (?:^|[;&|()\n{}"'`]) 匹配字符串的开头、分隔符号/花括号或引号（覆盖 powershell -Command "..." 与 & {...} 嵌套写法）
 ### \s* 多个空白符号
-### (?:rm|del) 匹配rm或者del
-### (?=\s|$|[;&|()]) 往后看一眼，确认后面紧跟的是空格，字符串结尾(后面没有字符了)，或者特定的分隔符号
+### (?:rm|del|erase|ri|rmdir|rd|Remove-Item) 匹配各类删除命令及其别名（ri/rd 为 PowerShell 别名，erase/rmdir 为 cmd 内置）
+### (?=\s|$|[;&|(){}]) 往后看一眼，确认后面紧跟的是空格，字符串结尾(后面没有字符了)，或者特定的分隔符号
 DESTRUCTIVE_COMMAND_WORD = re.compile(
-    r"(?i)(?:^|[;&|()\n])\s*(?:rm|del|Remove-Item)(?=\s|$|[;&|()])"
+    r"""(?i)(?:^|[;&|()\n{}"'`])\s*(?:rm|del|erase|ri|rmdir|rd|Remove-Item)(?=\s|$|[;&|(){}])"""
 )
 
 
@@ -317,7 +317,7 @@ def loop(messages: list):
                     {
                         "type": "tool_result",
                         "tool_use_id": block.id,
-                        "content": "Permission denied",
+                        "content": "Permission denied"
                     }
                 )
                 
