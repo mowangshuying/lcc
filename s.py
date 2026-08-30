@@ -3,6 +3,8 @@ import subprocess
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
+from pathlib import Path
+import glob
 
 
 ### 常用的文字颜色
@@ -41,9 +43,11 @@ g_client = Anthropic(base_url=g_httpUrl)
 
 ### dir
 g_workDir = os.getcwd()
+g_workDirPath = Path.cwd()
 
 ### 提示词
-g_systemPrompt = f"You are a coding agent at {g_workDir}. Use bash to solve tasks. Act, don't explain."
+g_systemPrompt = f"You are a coding agent at {g_workDir}. Use tools to solve tasks. Act, don't explain."
+
 
 ### 工具定义
 g_tools = [
@@ -60,10 +64,83 @@ g_tools = [
                 },
              "required": ["command"],
         }
+    },
+    ### read_file
+    {
+        "name":"read_file",
+        "description":"Read file contents",
+        "input_schema": {
+            "type":"object",
+            "properties": {
+                "path": {
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                }
+            },
+            "required":["path"]            
+        }
+    },
+
+    ### write_file
+    {
+        "name":"write_file",
+        "description":"Write content to a file",
+        "input_schema":{
+            "type": "object",
+            "properties":{
+                "path": {
+                    "type":"string"
+                },
+                "content":{
+                    "type":"string"
+                }
+            },
+            "required":["path", "content"]
+        }
+    },
+
+    ### edit_file
+    {
+        "name":"edit_file",
+        "description":"Replace exact text in a file once.",
+        "input_schema":{
+            "type":"object",
+            "properties":{
+                "path":{
+                    "type":"string"
+                },
+                "old_text":{
+                    "type":"string"
+                },
+                "new_text":{
+                    "type":"string"
+                }
+            }
+        }
+    },
+
+    ### glob
+    {
+        "name":"glob",
+        "description":"Find files matching a glob pattern; ** matches recursively.",
+        "input_schema":{
+            "type":"object",
+            "properties":{
+                "pattern":{
+                    "type":"string"
+                }
+            },
+            "require":[
+                "pattern"
+            ]
+        }
     }
 ]
 
 ### 工具函数
+### bash
 def run_bash(command:str) -> str:
     dangerous = ["rm -rf /", "sudo", "shutdown", "reboot", "> /dev/"]
 
@@ -88,14 +165,75 @@ def run_bash(command:str) -> str:
     except (FileNotFoundError, OSError) as e:
         return f"Error:{e}"
 
-# ### 处理httpurl及token
-# def __init():
-#     load_dotenv(override=True)
-#     if os.getenv("ANTHROPIC_BASE_URL"):
-#         os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
+def safe_path(p:str) -> Path:
+    path = (g_workDirPath / p).resolve()
+    if not path.is_relative_to(g_workDirPath):
+        raise ValueError(f"Path escapes workspace: {p}")
+    return path
 
-#     g_httpUrl = os.getenv("ANTHROPIC_AUTH_TOKEN")
-#     g_modelId = os.getenv("MODEL_ID")
+
+### read_file
+def run_read(path:str, limit: int | None = None) -> str:
+    try:
+        lines = safe_path(path).read_text(encoding="utf-8").splitlines()
+        if limit and limit < len(lines):
+            lines = lines[:limit] + [f"... ({len(lines) - limit}) more lines)"]
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error:{e}"
+
+### write_file
+def run_write(path: str, content: str) -> str:
+    try:
+        file_path = safe_path(path)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(content, encoding="utf-8")
+        return f"Wrote {len(content)} bytes to {path}"
+    except Exception as e:
+        return f"Error{e}"
+
+### edit_file
+def run_edit(path: str, old_text: str, new_text: str) -> str:
+    try:
+        file_path = safe_path(path)
+        text = file_path.read_text(encoding="utf-8")
+        if old_text not in text:
+            return f"Error: text not found in {path}"
+        file_path.write_text(text.replace(old_text, new_text, 1), encoding="utf-8")
+        return f"Edited {path}"
+    except Exception as e:
+        return f"Error:{e}"
+
+
+### glob
+def run_glob(pattern: str) -> str:
+    try:
+        matches = []
+        for match in glob.glob(pattern, root_dir=g_workDirPath, recursive=True):
+            if (g_workDirPath / match).resolve().is_relative_to(g_workDirPath):
+                matches.append(match)
+        matches = sorted(matches)
+        shown = matches[:200]
+        if len(matches) > 200:
+            ### 已省略更多结果，请缩小匹配范围
+            shown.append("...(more matches omitted; narrow the pattern)")
+
+        if len(matches) == 0:
+            return "(no matches)"
+        
+        return "\n".join(shown) 
+    except Exception as e:
+        return f"Error:{e}"
+
+
+### 工具路由
+g_toolHandlers = {
+    "bash":run_bash,
+    "read_file":run_read,
+    "write_file":run_write,
+    "edit_file":run_edit,
+    "glob":run_glob
+}
 
 ### loop;
 def loop(messages:list):
@@ -119,8 +257,15 @@ def loop(messages:list):
 
         results = []
         for block in tool_calls:
-            print(f"{color_green}tool_use: shell execute {block.input['command']}{color_default}")
-            output = run_bash(block.input['command'])
+            print(f"{color_green}tool_use: {block.name}{color_default}")
+
+            # output = run_bash(block.input['command'])
+            handler = g_toolHandlers.get(block.name)
+            if not handler:
+                output = f"Unknown:{block.name}"
+            else:
+                output = handler(**block.input)
+
             print(f"{color_magenta}tool_result:{output}{color_default}")
             results.append({
                 "type":"tool_result",
@@ -136,7 +281,7 @@ if __name__ == "__main__":
     history = []
     while True:
         try:
-            query = input(f"{color_red}s>>{color_default}")
+            query = input(f"{color_red}s>>")
         except (EOFError, KeyboardInterrupt):
             break
 
