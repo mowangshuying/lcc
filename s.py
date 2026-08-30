@@ -97,6 +97,7 @@ g_tools = [
                 "old_text": {"type": "string"},
                 "new_text": {"type": "string"},
             },
+            "required":["path", "old_text", "new_text"]
         },
     },
     ### glob
@@ -106,7 +107,7 @@ g_tools = [
         "input_schema": {
             "type": "object",
             "properties": {"pattern": {"type": "string"}},
-            "require": ["pattern"],
+            "required": ["pattern"],
         },
     },
     
@@ -187,7 +188,7 @@ def run_read(path: str, limit: int | None = None) -> str:
     try:
         lines = safe_path(path).read_text(encoding="utf-8").splitlines()
         if limit and limit < len(lines):
-            lines = lines[:limit] + [f"... ({len(lines) - limit}) more lines)"]
+            lines = lines[:limit] + [f"... ({len(lines) - limit} more lines)"]
         return "\n".join(lines)
     except Exception as e:
         return f"Error:{e}"
@@ -506,7 +507,7 @@ def loop(messages: list):
         if len(tool_calls) == 0:
             force = trigger_hooks("Stop", messages)
             if force:
-                messages.append({"role": "user", "conent": force})
+                messages.append({"role": "user", "content": force})
             return
 
         results = []
@@ -543,7 +544,6 @@ def loop(messages: list):
                 }
             )
             
-        # rounds_since_todo = 0
         if not used_todo:
             rounds_since_todo += 1
         else:
@@ -552,7 +552,7 @@ def loop(messages: list):
         if rounds_since_todo >= 3:
             results.append({
                 "type":"text",
-                "text":"<reminder>Update your todos.</remider>"
+                "text":"<reminder>Update your todos.</reminder>"
             })
             rounds_since_todo = 0
             
