@@ -485,6 +485,7 @@ register_hook("Stop", summary_hook)
 
 ### loop;
 def loop(messages: list):
+    rounds_since_todo = 0
     while True:
         response = g_client.messages.create(
             model=g_modelId,
@@ -542,9 +543,11 @@ def loop(messages: list):
                 }
             )
             
-        rounds_since_todo = 0
+        # rounds_since_todo = 0
         if not used_todo:
             rounds_since_todo += 1
+        else:
+            rounds_since_todo = 0
         
         if rounds_since_todo >= 3:
             results.append({
