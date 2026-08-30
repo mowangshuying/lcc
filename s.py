@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 from pathlib import Path
 import glob
 import re
+import json
+import ast
 
 ### 常用的文字颜色
 # 30: 黑
@@ -45,7 +47,11 @@ g_workDir = os.getcwd()
 g_workDirPath = Path.cwd()
 
 ### 提示词
-g_systemPrompt = f"You are a coding agent at {g_workDir}. Use tools to solve tasks. Act, don't explain."
+g_systemPrompt = (  f"You are a coding agent at {g_workDir}."
+                    "Before starting any multi-step task, use todo_write to plan your steps."
+                    "Update status as you go."
+                  )
+
 
 
 ### 工具定义
@@ -103,6 +109,35 @@ g_tools = [
             "require": ["pattern"],
         },
     },
+    
+    ### todo_write
+    {
+        "name":"todo_write",
+        "description": "Create and manage a task list for your current coding session.",
+        "input_schema":{
+            "type":"object",
+            "properties":{
+                "todos":{
+                    "type":"array",
+                    "maxItems":20,
+                    "items":{
+                        "type":"object",
+                        "properties":{
+                            "content":{
+                                "type":"string",
+                                "minLength":1,
+                            },
+                            "status":{
+                                "type":"string",
+                                "enum":["pending", "in_progress", "completed"]
+                            }
+                        }
+                    }
+                }
+            },
+            "required":["todos"]
+        }
+    }
 ]
 
 
@@ -203,6 +238,82 @@ def run_glob(pattern: str) -> str:
         return f"Error:{e}"
 
 
+### todo list;
+class TodoManager:
+    def __init__(self):
+        self.items: list[dict] = []
+        
+    def update(self, todos: list | str) -> str:
+        if isinstance(todos, str):
+            try:
+                todos = json.loads(todos)
+            except json.JSONDecodeError:
+                try:
+                    todos = ast.literal_eval(todos)
+                except (SyntaxError, ValueError) as e:
+                    raise ValueError("todos must be a list or JSON array string") from e
+                
+        if not isinstance(todos, list):
+            raise ValueError("todos must be a list")
+        
+        if len(todos) > 20:
+            raise ValueError("Max 20 todos allowed")
+        
+        validated = []
+        in_progress_count = 0
+        for index, todo in enumerate(todos):
+            if not isinstance(todo, dict):
+                raise ValueError(f"todos[{index}] must be an object")
+            
+            content = str(todo.get("content", "")).strip()
+            status = str(todo.get("status", "pending")).lower()
+            if not content:
+                raise ValueError(f"todos[{index}] requires content")
+            
+            if status not in ("pending", "in_progress", "completed"):
+                raise ValueError(f"todos[{index}] has invalid status '{status}'")
+            
+            if status == "in_progress":
+                in_progress_count += 1
+                
+            validated.append({"content":content, "status":status})
+            
+        if in_progress_count > 1:
+            raise ValueError("Only one todo can be in_progress at a time")
+        
+        self.items = validated
+        return self.render()
+    
+    def render(self) -> str:
+        if not self.items:
+            return "No todos"
+        
+        lines = []
+        for todo in self.items:
+            marker = {
+                "pending": "[ ]",
+                "in_progress": "[>]",
+                "completed":"[x]"
+            }[todo["status"]]
+            lines.append(f"{marker} {todo['content']}")
+        
+        done = 0
+        for todo in self.items:
+            if todo["status"] == "completed":
+                done += 1
+        lines.append(f"\n({done}/{len(self.items)} completed)")
+        return "\n".join(lines)
+        
+TODO = TodoManager()
+
+def run_todo_write(todos: list | str) -> str:
+    try:
+        output = TODO.update(todos)
+    except ValueError as e:
+        return f"Error:{e}"
+    print(f"\n{color_magenta} Current Tasks \n {output}")
+    return output
+
 ### 工具路由
 g_toolHandlers = {
     "bash": run_bash,
@@ -210,6 +321,7 @@ g_toolHandlers = {
     "write_file": run_write,
     "edit_file": run_edit,
     "glob": run_glob,
+    "todo_write":run_todo_write
 }
 
 
@@ -330,8 +442,10 @@ def log_after_use_tool_hook(block, output):
         info = f"path: {block.input['path']}"
     elif block.name == "glob":
         info = f"pattern: {block.input['pattern']}"
+    elif block.name == "todo_write":
+        info = f"update task list:"
     print(f"{color_green}[HOOK] tool_use: {block.name} - {info} {color_default}")
-    print(f"{color_default}[HOOK] tool_result:{output}{color_default}")
+    print(f"{color_default}[HOOK]tool_result:\n{output}{color_default}")
 
 
 def large_output_hook(block, output):
@@ -395,6 +509,7 @@ def loop(messages: list):
             return
 
         results = []
+        used_todo = False
         for block in tool_calls:
             blocked = trigger_hooks("PreToolUse", block)
             if blocked:
@@ -415,7 +530,10 @@ def loop(messages: list):
                 output = handler(**block.input)
 
             trigger_hooks("PostToolUse", block, output)
-
+            
+            if block.name == "todo_write":
+                used_todo = True
+            
             results.append(
                 {
                     "type": "tool_result",
@@ -423,6 +541,18 @@ def loop(messages: list):
                     "content": output,
                 }
             )
+            
+        rounds_since_todo = 0
+        if not used_todo:
+            rounds_since_todo += 1
+        
+        if rounds_since_todo >= 3:
+            results.append({
+                "type":"text",
+                "text":"<reminder>Update your todos.</remider>"
+            })
+            rounds_since_todo = 0
+            
         messages.append({"role": "user", "content": results})
 
 
@@ -431,7 +561,7 @@ if __name__ == "__main__":
     history = []
     while True:
         try:
-            query = input(f"{color_blue}s04>>")
+            query = input(f"{color_blue}s05>>")
         except (EOFError, KeyboardInterrupt):
             break
 
