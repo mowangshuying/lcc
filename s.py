@@ -257,9 +257,22 @@ def loop(messages:list):
 
         results = []
         for block in tool_calls:
-            print(f"{color_green}tool_use: {block.name}{color_default}")
 
-            # output = run_bash(block.input['command'])
+            ### use tool info
+            info = ""
+            if block.name == "bash":
+                info = f"command: {block.input['command']}"
+            elif block.name == "read_file":
+                info = f"path: {block.input['path']}"
+            elif block.name == "write_file":
+                info = f"path: {block.input['path']}"
+            elif block.name == "edit_file":
+                info = f"path: {block.input['path']}"
+            elif block.name == "glob":
+                info = f"pattern: {block.input['pattern']}"
+            print(f"{color_green}tool_use: {block.name} - {info} {color_default}")
+
+            ### 工具路由
             handler = g_toolHandlers.get(block.name)
             if not handler:
                 output = f"Unknown:{block.name}"
