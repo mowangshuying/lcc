@@ -223,7 +223,7 @@ DENY_LIST = ["rm -rf /", "sudo", "shutdown", "reboot", "mkfs", "dd if=", "> /dev
 def check_deny_list(command: str) -> str | None:
     for pattern in DENY_LIST:
         if pattern in command:
-            return f"Blocked: {pattern} is on the deny list"
+            return f"Permission denied by deny list"
     return None
 
 
@@ -241,6 +241,7 @@ DESTRUCTIVE_COMMAND_WORD = re.compile(
 def contains_destructive_command(command: str) -> bool:
     return bool(DESTRUCTIVE_COMMAND_WORD.search(command))
 
+
 PERMISSION_RULES = [
     {
         "tools": ["read_file", "write_file", "edit_file"],
@@ -257,6 +258,7 @@ PERMISSION_RULES = [
     },
 ]
 
+
 ### 检查规则
 def check_rules(tool_name: str, args: dict) -> str | None:
     for rule in PERMISSION_RULES:
@@ -264,7 +266,8 @@ def check_rules(tool_name: str, args: dict) -> str | None:
             return rule["message"]
     return None
 
-def ask_user(tool_name: str, args: dict, reason:str) -> str:
+
+def ask_user(tool_name: str, args: dict, reason: str) -> str:
     print(f"\n{color_yellow}[permission]{reason}{color_default}")
     print(f"    {color_yellow}Tool: {tool_name}({args}){color_default}")
     choice = input(f"    {color_yellow}Allow? [Y/N]{color_blue}").strip().lower()
@@ -272,20 +275,98 @@ def ask_user(tool_name: str, args: dict, reason:str) -> str:
         return "allow"
     return "deny"
 
+
 def check_permission(block) -> bool:
     if block.name == "bash":
         reason = check_deny_list(block.input.get("command", ""))
         if reason:
             print(f"{color_red}{reason}{color_default}")
-            return False
-        
+            return reason
+
     reason = check_rules(block.name, block.input)
     if reason:
         decision = ask_user(block.name, block.input, reason)
         if decision == "deny":
-            return False
-    return True
-            
+            print(f"{color_red}Permission denied by user")
+            return "Permission denied by user"
+    return None
+
+
+HOOKS = {"UserPromptSubmit": [], "PreToolUse": [], "PostToolUse": [], "Stop": []}
+
+
+def register_hook(event: str, callback):
+    HOOKS[event].append(callback)
+
+
+def trigger_hooks(event: str, *args):
+    for callback in HOOKS[event]:
+        result = callback(*args)
+        if result is not None:
+            return result
+    return None
+
+
+def permission_hook(block):
+    return check_permission(block)
+
+
+def log_before_use_tool_hook(block):
+    args_preview = str(list(block.input.values())[:2])[:60]
+    print(f"{color_default}[HOOK] {block.name}({args_preview}) {color_default}")
+    return None
+
+
+def log_after_use_tool_hook(block, output):
+    # ### use tool info
+    info = ""
+    if block.name == "bash":
+        info = f"command: {block.input['command']}"
+    elif block.name == "read_file":
+        info = f"path: {block.input['path']}"
+    elif block.name == "write_file":
+        info = f"path: {block.input['path']}"
+    elif block.name == "edit_file":
+        info = f"path: {block.input['path']}"
+    elif block.name == "glob":
+        info = f"pattern: {block.input['pattern']}"
+    print(f"{color_green}[HOOK] tool_use: {block.name} - {info} {color_default}")
+    print(f"{color_default}[HOOK] tool_result:{output}{color_default}")
+
+
+def large_output_hook(block, output):
+    if len(str(output)) > 100000:
+        print(
+            f"{color_default}[HOOK] Large output from {block.name}: {len(str(output))} chars {color_default}"
+        )
+    return None
+
+
+def context_inject_hook(query: str):
+    print(
+        f"{color_default}[HOOK] UserPromtSubmit: working in {g_workDirPath} {color_default}"
+    )
+
+
+def summary_hook(messages: list):
+    tool_count = 0
+    for message in messages:
+        if isinstance(message.get("content"), list):
+            for block in message.get("content"):
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    tool_count += 1
+    print(
+        f"{color_default}[HOOK] Stop: session used {tool_count} tool calls {color_default}"
+    )
+    return None
+
+
+register_hook("UserPromptSubmit", context_inject_hook)
+register_hook("PreToolUse", permission_hook)
+register_hook("PreToolUse", log_before_use_tool_hook)
+register_hook("PostToolUse", log_after_use_tool_hook)
+register_hook("PostToolUse", large_output_hook)
+register_hook("Stop", summary_hook)
 
 
 ### loop;
@@ -308,45 +389,33 @@ def loop(messages: list):
                 tool_calls.append(block)
 
         if len(tool_calls) == 0:
+            force = trigger_hooks("Stop", messages)
+            if force:
+                messages.append({"role": "user", "conent": force})
             return
 
         results = []
         for block in tool_calls:
-            if not check_permission(block):
+            blocked = trigger_hooks("PreToolUse", block)
+            if blocked:
                 results.append(
                     {
                         "type": "tool_result",
                         "tool_use_id": block.id,
-                        "content": "Permission denied"
+                        "content": str(blocked),
                     }
                 )
-                
-                print(f"{color_red}deny: tool_use_id={block.id}")
                 continue
-
-            ### use tool info
-            info = ""
-            if block.name == "bash":
-                info = f"command: {block.input['command']}"
-            elif block.name == "read_file":
-                info = f"path: {block.input['path']}"
-            elif block.name == "write_file":
-                info = f"path: {block.input['path']}"
-            elif block.name == "edit_file":
-                info = f"path: {block.input['path']}"
-            elif block.name == "glob":
-                info = f"pattern: {block.input['pattern']}"
-            print(f"{color_green}tool_use: {block.name} - {info} {color_default}")
 
             ### 工具路由
             handler = g_toolHandlers.get(block.name)
             if not handler:
                 output = f"Unknown:{block.name}"
-                print(f"{color_red}tool_result:{output}{color_default}")
             else:
                 output = handler(**block.input)
-                print(f"{color_default}tool_result:{output}{color_default}")
-                
+
+            trigger_hooks("PostToolUse", block, output)
+
             results.append(
                 {
                     "type": "tool_result",
@@ -362,13 +431,14 @@ if __name__ == "__main__":
     history = []
     while True:
         try:
-            query = input(f"{color_blue}s03>>")
+            query = input(f"{color_blue}s04>>")
         except (EOFError, KeyboardInterrupt):
             break
 
         if query.strip().lower() in ("q", "exit", ""):
             break
 
+        trigger_hooks("UserPromptSubmit", query)
         history.append({"role": "user", "content": query})
 
         loop(history)
