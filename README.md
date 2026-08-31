@@ -19,7 +19,7 @@ ANTHROPIC_BASE_URL=             # 可选，走网关时设置
 ```
 
 ```powershell
-python s.py    # 启动目录即沙箱根；q / exit 退出
+python loop.py    # 启动目录即沙箱根；q / exit 退出
 ```
 
 ## 参考
