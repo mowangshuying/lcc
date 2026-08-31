@@ -490,7 +490,7 @@ def ask_user(tool_name: str, args: dict, reason: str) -> str:
     return "deny"
 
 
-def check_permission(block) -> bool:
+def check_permission(block) -> str | None:
     if block.name == "bash":
         reason = check_deny_list(block.input.get("command", ""))
         if reason:
@@ -714,7 +714,7 @@ if __name__ == "__main__":
     history = []
     while True:
         try:
-            query = input(f"{COLOR_CYAN}s05>>")
+            query = input(f"{COLOR_CYAN}s06>>")
         except (EOFError, KeyboardInterrupt):
             break
 
