@@ -63,8 +63,8 @@ SUB_SYSTEM_PROMPT = (
 TOOLS = [
     ### bash
     {
-        "name": "PowerShell",
-        "description": "Run a PowerShell command.",
+        "name": "bash",
+        "description": "Run a shell command.",
         "input_schema": {
             "type": "object",
             "properties": {"command": {"type": "string"}},
@@ -181,7 +181,7 @@ def execute_tool(block, handlers: dict) -> str:
 
 ### 工具函数
 ### bash
-def run_power_shell(command: str) -> str:
+def run_bash(command: str) -> str:
     dangerous = ["rm -rf /", "sudo", "shutdown", "reboot", "> /dev/"]
 
     found = False
@@ -417,7 +417,7 @@ def run_subagent(prompt:str) -> str:
 
 ### 工具路由
 HANDLERS = {
-    "bash": run_power_shell,
+    "bash": run_bash,
     "read_file": run_read,
     "write_file": run_write,
     "edit_file": run_edit,
@@ -588,8 +588,8 @@ register_hook("Stop", summary_hook)
 SUB_TOOLS = [
     ### bash
     {
-        "name": "PowerShell",
-        "description": "Run a PowerShell command.",
+        "name": "bash",
+        "description": "Run a shell command.",
         "input_schema": {
             "type": "object",
             "properties": {"command": {"type": "string"}},
@@ -643,7 +643,7 @@ SUB_TOOLS = [
 ]
 
 SUB_HANDLERS =  {
-    "power_shell": run_power_shell,
+    "bash": run_bash,
     "read_file": run_read,
     "write_file": run_write,
     "edit_file": run_edit,
