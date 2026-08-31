@@ -364,7 +364,7 @@ def run_todo_write(todos: list | str) -> str:
         output = TODO.update(todos)
     except ValueError as e:
         return f"Error:{e}"
-    print(f"\n{COLOR_MAGENTA} Current Tasks \n {output}")
+    print(f"\n{COLOR_MAGENTA}Current Tasks:\n{output}")
     return output
 
 ### subagent
