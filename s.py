@@ -63,8 +63,8 @@ SUB_SYSTEM_PROMPT = (
 TOOLS = [
     ### bash
     {
-        "name": "bash",
-        "description": "Run a shell command.",
+        "name": "PowerShell",
+        "description": "Run a PowerShell command.",
         "input_schema": {
             "type": "object",
             "properties": {"command": {"type": "string"}},
@@ -169,7 +169,7 @@ def execute_tool(block, handlers: dict) -> str:
         return str(blocked)
 
     ### 工具路由
-    handler = HANDLERS.get(block.name)
+    handler = handlers.get(block.name)
     if not handler:
         output = f"Unknown:{block.name}"
     else:
@@ -181,7 +181,7 @@ def execute_tool(block, handlers: dict) -> str:
 
 ### 工具函数
 ### bash
-def run_bash(command: str) -> str:
+def run_power_shell(command: str) -> str:
     dangerous = ["rm -rf /", "sudo", "shutdown", "reboot", "> /dev/"]
 
     found = False
@@ -375,6 +375,7 @@ def run_subagent(prompt:str) -> str:
         response = CLIENT.messages.create(
             model=MODELID,
             system=SUB_SYSTEM_PROMPT,
+            messages=messages,
             tools=SUB_TOOLS,
             max_tokens=8000
         )
@@ -386,7 +387,7 @@ def run_subagent(prompt:str) -> str:
             if block.type == "tool_use":
                 tool_calls.append(block)
                 
-        if len(tool_calls == 0):
+        if len(tool_calls) == 0:
             force = trigger_hooks("Stop", messages)
             if force:
                 messages.append({"role":"user", "content": force})
@@ -403,12 +404,12 @@ def run_subagent(prompt:str) -> str:
             results.append({
                 "type":"tool_result",
                 "tool_use_id":block.id,
-                "output":output
+                "content":output
             })
             
         messages.append({"role":"user", "content":results})
     print(f"{COLOR_MAGENTA} [Subagent stopped]{COLOR_DEFAULT}")
-    return "Subagent stopped after 30 turns without a final answer."
+    return "Subagent stopped after 50 turns without a final answer."
             
         
         
@@ -416,7 +417,7 @@ def run_subagent(prompt:str) -> str:
 
 ### 工具路由
 HANDLERS = {
-    "bash": run_bash,
+    "bash": run_power_shell,
     "read_file": run_read,
     "write_file": run_write,
     "edit_file": run_edit,
@@ -587,8 +588,8 @@ register_hook("Stop", summary_hook)
 SUB_TOOLS = [
     ### bash
     {
-        "name": "bash",
-        "description": "Run a shell command.",
+        "name": "PowerShell",
+        "description": "Run a PowerShell command.",
         "input_schema": {
             "type": "object",
             "properties": {"command": {"type": "string"}},
@@ -642,7 +643,7 @@ SUB_TOOLS = [
 ]
 
 SUB_HANDLERS =  {
-    "bash": run_bash,
+    "power_shell": run_power_shell,
     "read_file": run_read,
     "write_file": run_write,
     "edit_file": run_edit,
@@ -683,8 +684,8 @@ def loop(messages: list):
             output = execute_tool(block, HANDLERS)
             results.append({
                 "type": "tool_result",
-                "tool_call_id": block.id,
-                "output": output,
+                "tool_use_id": block.id,
+                "content": output,
             })
             
             if block.name == "todo_write":
