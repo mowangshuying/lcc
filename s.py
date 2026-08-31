@@ -484,7 +484,7 @@ def check_rules(tool_name: str, args: dict) -> str | None:
 def ask_user(tool_name: str, args: dict, reason: str) -> str:
     print(f"\n{COLOR_YELLOW}[permission]{reason}{COLOR_DEFAULT}")
     print(f"    {COLOR_YELLOW}Tool: {tool_name}({args}){COLOR_DEFAULT}")
-    choice = input(f"    {COLOR_YELLOW}Allow? [Y/N]{COLOR_BLUE}").strip().lower()
+    choice = input(f"    {COLOR_YELLOW}Allow? [Y/N]{COLOR_CYAN}").strip().lower()
     if choice in ("y", "yes"):
         return "allow"
     return "deny"
@@ -546,6 +546,9 @@ def log_after_use_tool_hook(block, output):
         info = f"pattern: {block.input['pattern']}"
     elif block.name == "todo_write":
         info = f"update task list:"
+    elif block.name == "task":
+        info = f"task: {block.input.get('prompt', '')}"
+    
     print(f"{COLOR_GREEN}[HOOK] tool_use: {block.name} - {info} {COLOR_DEFAULT}")
     print(f"{COLOR_DEFAULT}[HOOK]tool_result:\n{output}{COLOR_DEFAULT}")
 
@@ -711,7 +714,7 @@ if __name__ == "__main__":
     history = []
     while True:
         try:
-            query = input(f"{COLOR_BLUE}s05>>")
+            query = input(f"{COLOR_CYAN}s05>>")
         except (EOFError, KeyboardInterrupt):
             break
 
