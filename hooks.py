@@ -55,7 +55,7 @@ class Hooks:
         elif block.name == "glob":
             info = f"pattern: {block.input['pattern']}"
         elif block.name == "todo_write":
-            info = f"update task list:"
+            info = f"update task list"
         elif block.name == "task":
             info = f"task: {block.input.get('prompt', '')}"
 
