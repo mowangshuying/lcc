@@ -50,12 +50,19 @@ g_workDirPath = Path.cwd()
 g_systemPrompt = (  f"You are a coding agent at {g_workDir}."
                     "Before starting any multi-step task, use todo_write to plan your steps."
                     "Update status as you go."
+                    "Use task for focused exploration or a self-contained subtask."
                   )
+
+g_subSystemPrompt = (
+    f"You are coding agent at {g_workDirPath}."
+    # 完成指定任务后，返回一个简洁的最终答案
+    "Complete the given task, then return a concise final answer"
+)
 
 
 
 ### 工具定义
-g_tools = [
+TOOLS = [
     ### bash
     {
         "name": "bash",
@@ -137,6 +144,22 @@ g_tools = [
                 }
             },
             "required":["todos"]
+        }
+    },
+    
+    ### task
+    {
+        "name": "task",
+        "description": "Run a subagent with fresh conversation context and return its final text.",
+        "input_schema": {
+            "type": "object",
+            "properties":{
+                "prompt": {
+                    "type":"string",
+                    "minLength":1
+                }
+            },
+            "required":["prompt"]
         }
     }
 ]
@@ -315,8 +338,13 @@ def run_todo_write(todos: list | str) -> str:
     print(f"\n{color_magenta} Current Tasks \n {output}")
     return output
 
+### subagent
+def run_subagent(prompt:str) -> str:
+    messages = [{"role":"user", "content":prompt}]
+    for _ in range(30):
+
 ### 工具路由
-g_toolHandlers = {
+HANDLERS = {
     "bash": run_bash,
     "read_file": run_read,
     "write_file": run_write,
@@ -483,6 +511,72 @@ register_hook("PostToolUse", log_after_use_tool_hook)
 register_hook("PostToolUse", large_output_hook)
 register_hook("Stop", summary_hook)
 
+### New in s0
+SUB_TOOLS = [
+    ### bash
+    {
+        "name": "bash",
+        "description": "Run a shell command.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"command": {"type": "string"}},
+            "required": ["command"],
+        },
+    },
+    ### read_file
+    {
+        "name": "read_file",
+        "description": "Read file contents",
+        "input_schema": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}, "limit": {"type": "integer"}},
+            "required": ["path"],
+        },
+    },
+    ### write_file
+    {
+        "name": "write_file",
+        "description": "Write content to a file",
+        "input_schema": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
+            "required": ["path", "content"],
+        },
+    },
+    ### edit_file
+    {
+        "name": "edit_file",
+        "description": "Replace exact text in a file once.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "old_text": {"type": "string"},
+                "new_text": {"type": "string"},
+            },
+            "required":["path", "old_text", "new_text"]
+        },
+    },
+    ### glob
+    {
+        "name": "glob",
+        "description": "Find files matching a glob pattern; ** matches recursively.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"pattern": {"type": "string"}},
+            "required": ["pattern"],
+        },
+    }
+]
+
+SUB_HANDLERS =  {
+    "bash": run_bash,
+    "read_file": run_read,
+    "write_file": run_write,
+    "edit_file": run_edit,
+    "glob": run_glob,
+}
+
 
 ### loop;
 def loop(messages: list):
@@ -492,7 +586,7 @@ def loop(messages: list):
             model=g_modelId,
             system=g_systemPrompt,
             messages=messages,
-            tools=g_tools,
+            tools=TOOLS,
             max_tokens=8000,
         )
 
@@ -525,7 +619,7 @@ def loop(messages: list):
                 continue
 
             ### 工具路由
-            handler = g_toolHandlers.get(block.name)
+            handler = HANDLERS.get(block.name)
             if not handler:
                 output = f"Unknown:{block.name}"
             else:
