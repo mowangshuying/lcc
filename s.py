@@ -46,8 +46,7 @@ WORKDIRPATH = Path.cwd()
 
 ### 提示词
 SYSTEM_PROMPT = (  f"You are a coding agent at {WORKDIR}."
-                    "Before starting any multi-step task, use todo_write to plan your steps."
-                    "Update status as you go."
+                    "Before starting any multi-step task, use todo_write to plan your steps, and use todo_write to update your todo list, must update after each step."
                     "Use task for focused exploration or a self-contained subtask."
                   )
 
