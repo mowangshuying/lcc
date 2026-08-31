@@ -44,7 +44,7 @@ class Permission:
 
     ### 是否包含破坏性命令
     def contains_destructive_command(self, command: str) -> bool:
-        return bool(self, self.DESTRUCTIVE_COMMAND_WORD.search(command))
+        return bool(self.DESTRUCTIVE_COMMAND_WORD.search(command))
 
     ### 检查规则
     def check_rules(self, tool_name: str, args: dict) -> str | None:

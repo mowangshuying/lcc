@@ -206,7 +206,7 @@ class ToolsManager:
             r = subprocess.run(
                 command,
                 shell=True,
-                cwd=self.env.work_dir,
+                cwd=self.env.workDir,
                 capture_output=True,
                 text=True,
                 errors="replace",
