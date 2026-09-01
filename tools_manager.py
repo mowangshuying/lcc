@@ -116,6 +116,17 @@ class ToolsManager:
             "required": ["name"],
         }
     }
+    
+    COMPACT = {
+        "name" : "compact",
+        "description" : "Summarize earlier conversation to free context space",
+        "input_schema" : {
+            "type" : "object",
+            "properties" : {
+                ## EMPTY
+            }
+        }
+    }
 
     MAX_SUBAGENT_TURNS = 50
 
@@ -139,6 +150,7 @@ class ToolsManager:
             self.todo_write_info(),
             self.task_info(),
             self.load_skill_info(),
+            self.compact_info(),
         ]
         self.toolsHandlers = {
             "bash": self.run_bash,
@@ -213,6 +225,9 @@ class ToolsManager:
     
     def skills_catalog(self) -> str:
         return self.skillManager.catalog()
+    
+    def compact_info(self):
+        return self.COMPACT
 
     ### bash
     def run_bash(self, command: str) -> str:
