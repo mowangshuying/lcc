@@ -6,16 +6,22 @@ from color import *
 from hooks import *
 from tools_manager import ToolsManager
 
+
 class Loop:
     def __init__(self):
         self.env = Env()
         self.hooks = Hooks()
         self.client = Anthropic(base_url=self.env.httpUrl)
         self.toolsManager = ToolsManager()
-        self.sytem_prompt = (  f"You are a coding agent at {self.env.workDir}."
-                    "Before starting any multi-step task, use todo_write to plan your steps, and use todo_write to update your todo list, must update after each step."
-                    "Use task for focused exploration or a self-contained subtask."
-                  )
+        self.system_prompt = self.build_system_prompt()
+
+    def build_system_prompt(self):
+        return (
+            f"You are a coding agent at {self.env.workDir}. Use tools to solve tasks. "
+            "Act, don't explain.\n\n"
+            f"Skills available:\n{self.toolsManager.skills_catalog()}\n\n"
+            "Use load_skill to read the full instructions when a skill applies."
+        )
 
     ### loop;
     def agent_loop(self, messages: list):
@@ -23,7 +29,7 @@ class Loop:
         while True:
             response = self.client.messages.create(
                 model=self.env.modelId,
-                system=self.sytem_prompt,
+                system=self.system_prompt,
                 messages=messages,
                 tools=self.toolsManager.tools,
                 max_tokens=8000,
@@ -47,30 +53,33 @@ class Loop:
             results = []
             used_todo = False
             for block in tool_calls:
-                output = self.toolsManager.execute_tool(block, self.toolsManager.toolsHandlers)
-                results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": output,
-                })
-                
+                output = self.toolsManager.execute_tool(
+                    block, self.toolsManager.toolsHandlers
+                )
+                results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": output,
+                    }
+                )
+
                 if block.name == "todo_write":
                     used_todo = True
-                
+
             if not used_todo:
                 rounds_since_todo += 1
             else:
                 rounds_since_todo = 0
-            
+
             if rounds_since_todo >= 3:
-                results.append({
-                    "type":"text",
-                    "text":"<reminder>Update your todos.</reminder>"
-                })
+                results.append(
+                    {"type": "text", "text": "<reminder>Update your todos.</reminder>"}
+                )
                 rounds_since_todo = 0
-                
+
             messages.append({"role": "user", "content": results})
-        
+
     def run(self):
         history = []
         while True:
@@ -92,7 +101,6 @@ class Loop:
                 for block in lst_content:
                     if getattr(block, "type", None) == "text":
                         print(f"{COLOR_DEFAULT}text:{block.text}{COLOR_DEFAULT}")
-
 
 
 ### 主函数

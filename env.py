@@ -11,3 +11,5 @@ class Env:
         self.modelId = os.getenv("MODEL_ID")
         self.workDir = os.getcwd() 
         self.workDirPath = Path.cwd()
+        self.skillsDirPath = self.workDirPath / "skills"
+        

@@ -5,6 +5,7 @@ class SkillManager:
     def __init__(self, skillsDir: Path):
         self.skillsDir = skillsDir
         self.skills: dict[str, dict[str, str]] = {}
+        self.scan()
         
     @staticmethod
     def parse_frontmatter(text: str) -> tuple[dict, str]:
@@ -35,20 +36,36 @@ class SkillManager:
         if not self.skillsDir.exists():
             return
 
-        skills_root = self.skillsDir.resolve()
+        skillsRoot = self.skillsDir.resolve()
         for manifest in sorted(self.skillsDir.glob("*/SKILL.md")):
-            if (not manifest.is_file()
-                    or not manifest.resolve().is_relative_to(skills_root)):
+            if (not manifest.is_file() or not manifest.resolve().is_relative_to(skillsRoot)):
                 continue
+            
             content = manifest.read_text(encoding="utf-8")
             metadata, body = self.parse_frontmatter(content)
-            raw_name = metadata.get("name")
-            name = raw_name.strip() if isinstance(raw_name, str) else ""
-            name = name or manifest.parent.name
-            raw_description = metadata.get("description")
-            description = (raw_description.strip()
-                           if isinstance(raw_description, str) else "")
-            description = description or body.split("\n", 1)[0]
+
+            ### Name;
+            name = ""             
+            rawName = metadata.get("name")
+            if isinstance(rawName, str):
+                name = rawName.strip()
+                
+            if not name:
+                name = manifest.parent.name
+            
+            ### Description;
+            description = ""
+            rawDescription = metadata.get("description")
+            if isinstance(rawDescription, str):
+                description = rawDescription.strip()
+                
+            if not description:
+                description = body.split("\n", 1)[0]
+            
+            #### 数据清洗   
+            #### lstrip 去除左侧所有空格及#;
+            #### split 会按连续空白字符拆分字符串;
+            #### eg: "#  Hello World  " => "Hello World"  
             description = " ".join(str(description).lstrip("# ").split())
             self.skills[name] = {
                 "name": name,
@@ -56,17 +73,21 @@ class SkillManager:
                 "content": content,
             }
             
+            
+    ### 列出技能摘要
     def catalog(self) -> str:
         if not self.skills:
             return "(no skills found)"
-        return "\n".join(
-            f"- {skill['name']}: {skill['description']}"
-            for skill in self.skills.values()
-        )
-
+        
+        skills = []
+        for skill in self.skills.values():
+            s =  f"- {skill['name']}: {skill['description']}"
+            skills.append(s)
+        return "\n".join(skills)
+    
+    ### 根据名字进行加载skill;
     def load(self, name: str) -> str:
         skill = self.skills.get(name)
         if skill:
             return skill["content"]
-        available = ", ".join(self.skills) or "none"
-        return f"Error: Unknown skill '{name}'. Available: {available}" 
+        return f"Error: Unknown skill '{name}'"

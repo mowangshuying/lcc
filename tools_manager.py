@@ -7,6 +7,7 @@ import ast
 from hooks import Hooks
 from anthropic import Anthropic
 from env import Env
+from skill_manager import SkillManager
 
 
 class ToolsManager:
@@ -101,6 +102,20 @@ class ToolsManager:
             "required": ["prompt"],
         },
     }
+    
+    LOAD_SKILL = {
+        "name": "load_skill",
+        "description": "Load the full SKILL.md content by skill name.",
+        "input_schema": {
+            "type": "object",
+            "properties":{
+                "name" : {
+                    "type": "string"
+                }
+            },
+            "required": ["name"],
+        }
+    }
 
     MAX_SUBAGENT_TURNS = 50
 
@@ -113,6 +128,7 @@ class ToolsManager:
         
         self.hooks = Hooks()
         self.client = Anthropic(base_url=self.env.httpUrl)
+        self.skillManager = SkillManager(self.env.skillsDirPath)
 
         self.tools = [
             self.bash_info(),
@@ -122,6 +138,7 @@ class ToolsManager:
             self.glob_info(),
             self.todo_write_info(),
             self.task_info(),
+            self.load_skill_info(),
         ]
         self.toolsHandlers = {
             "bash": self.run_bash,
@@ -131,6 +148,7 @@ class ToolsManager:
             "glob": self.run_glob,
             "todo_write": self.run_todo_write,
             "task": self.run_subagent,
+            "load_skill": self.run_load_skill,
         }
         self.subTools = [
             self.bash_info(),
@@ -189,6 +207,12 @@ class ToolsManager:
 
     def task_info(self):
         return self.TASK
+    
+    def load_skill_info(self):
+        return self.LOAD_SKILL
+    
+    def skills_catalog(self) -> str:
+        return self.skillManager.catalog()
 
     ### bash
     def run_bash(self, command: str) -> str:
@@ -405,3 +429,7 @@ class ToolsManager:
             messages.append({"role": "user", "content": results})
 
         return f"Subagent stopped after {self.MAX_SUBAGENT_TURNS} turns without a final answer."
+
+    ### load skill
+    def run_load_skill(self, name: str) -> str:
+        return self.sikillManager.load(name)
