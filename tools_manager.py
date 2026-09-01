@@ -432,4 +432,4 @@ class ToolsManager:
 
     ### load skill
     def run_load_skill(self, name: str) -> str:
-        return self.sikillManager.load(name)
+        return self.skillManager.load(name)
