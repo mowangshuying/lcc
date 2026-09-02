@@ -128,6 +128,7 @@ class CompactManager:
     
     
 
+    ### 根据tool_useid 保存tool_result的content文本到磁盘，并返回保存的路径
     def save_output(self, tool_use_id: str, output: str) -> Path:
         self.tool_results_dir.mkdir(parents=True, exist_ok=True)
         safe_id = re.sub(r"[^A-Za-z0-9._-]", "_", str(tool_use_id))[:120] or "unknown"
@@ -135,11 +136,13 @@ class CompactManager:
         path.write_text(output, encoding="utf-8")
         return path
 
+
     def persisted_preview(
         self, tool_use_id: str, output: str, preview_chars: int = 2000
     ) -> str:
         saved_path = self.persisted_output_path(output)
         if saved_path:
+            ### 之前已经存过盘了，直接读取
             path = Path(saved_path)
             try:
                 with path.open(encoding="utf-8") as saved:
@@ -147,6 +150,7 @@ class CompactManager:
             except OSError:
                 preview = output[:preview_chars]
         else:
+            ### 根据tool_use_id 全文写入
             path = self.save_output(tool_use_id, output)
             preview = output[:preview_chars]
         return (
@@ -162,64 +166,85 @@ class CompactManager:
     def tool_result_budget(self, messages: list, max_chars: int | None = None) -> list:
         if not messages:
             return messages
+        
         content = messages[-1].get("content")
         if messages[-1].get("role") != "user" or not isinstance(content, list):
             return messages
-        blocks = [
-            block
-            for block in content
-            if isinstance(block, dict) and block.get("type") == "tool_result"
-        ]
+        
+        blocks = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "tool_result":
+                blocks.append(block)
+        
         limit = max_chars or self.TOOL_RESULT_BATCH_CHAR_LIMIT
-        total = sum(len(str(block.get("content", ""))) for block in blocks)
-        for block in sorted(
-            blocks, key=lambda item: len(str(item.get("content", ""))), reverse=True
-        ):
+        
+        ### 获取所有tool_result的总长度
+        total = 0
+        for block in blocks:
+            output = str(block.get("content", ""))
+            total += len(output)
+        
+        
+        for block in sorted( blocks, key=lambda item: len(str(item.get("content", ""))), reverse=True):
             if total <= limit:
                 break
             output = str(block.get("content", ""))
             if len(output) <= self.LARGE_RESULT_CHAR_LIMIT:
                 continue
-            block["content"] = self.persist_large_output(
-                block.get("tool_use_id", "unknown"), output
-            )
-            total = sum(len(str(item.get("content", ""))) for item in blocks)
+            
+            #### 进行裁剪并更新content
+            block["content"] = self.persist_large_output(block.get("tool_use_id", "unknown"), output)
+            
+            total = 0
+            for item in blocks:
+                total += len(str(item.get("content", "")))
+            
         return messages
 
+    ### 判断一条消息是不是snip_compact留下的归档信息
+    #### 整条消息必须恰好是 [N messages archived at 路径] 格式，
+    ####  且路径净化后必须落在自家转录目录内并且文件真实存在——三个条件全过才算"真归档标记"，防伪造、防 .. 穿越、防指向已删除文件。
     def is_archive_marker(self, message: dict) -> bool:
         content = message.get("content")
-        match = (
-            re.fullmatch(r"\[\d+ messages archived at (.+)\]", content)
-            if isinstance(content, str)
-            else None
-        )
+        
+        match = None
+        if isinstance(content, str):
+            ### \[ 左方括号 \] 右方括号 \d+ 数字 (.+) 捕获组
+            match = re.fullmatch(r"\[\d+ messages archived at (.+)\]", content)
+        
         if not match:
             return False
+        
         path = Path(match.group(1))
         return (
             path.resolve().is_relative_to(self.transcript_dir.resolve())
             and path.is_file()
         )
 
+
     def snip_compact(self, messages: list, max_messages: int = 50) -> list:
         if len(messages) <= max_messages:
             return messages
         head_end = 3
         tail_start = len(messages) - (max_messages - head_end - 1)
+        
+        ### 生产者只有一个， 结果可以有多条
+        ### 前部最后一条含有tool_use, 则把后续的tool_result都算进前部
+        ### 然后head_end后移
         if self.has_tool_use(messages[head_end - 1]):
             while head_end < tail_start and self.is_tool_result(messages[head_end]):
                 head_end += 1
-        if (
-            tail_start > 0
-            and self.is_tool_result(messages[tail_start])
-            and self.has_tool_use(messages[tail_start - 1])
-        ):
+        
+        if ( tail_start > 0 and self.is_tool_result(messages[tail_start]) and self.has_tool_use(messages[tail_start - 1])):
             tail_start -= 1
+            
         if head_end >= tail_start:
             return messages
+        
         middle = messages[head_end:tail_start]
         if len(middle) == 1 and self.is_archive_marker(middle[0]):
             return messages
+        
         transcript_path = self.write_transcript(messages)
         marker = {
             "role": "user",
@@ -227,52 +252,58 @@ class CompactManager:
         }
         return [*messages[:head_end], marker, *messages[tail_start:]]
 
-    def micro_compact(self, messages: list, target_chars: int | None = None) -> list:
-        results = [
-            (message_index, block_index, block)
-            for message_index, message in enumerate(messages)
-            if message.get("role") == "user"
-            and isinstance(message.get("content"), list)
-            for block_index, block in enumerate(message["content"])
-            if isinstance(block, dict) and block.get("type") == "tool_result"
-        ]
+    def micro_compact(self, messages: list, target_chars: int | None = None) -> list:        
+        
+        results = []
+        for message_index, message in enumerate(messages):
+            if message.get("role") != "user":
+                continue
+            if not isinstance(message.get("content"), list):
+                continue
+            for block_index, block in enumerate(message["content"]):
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    results.append((message_index, block_index, block))
+        
         unseen = self.unseen_tool_result_positions(messages)
-        consumed = [entry for entry in results if entry[:2] not in unseen]
+        
+        consumed = []
+        for entry in results:
+            # 只压模型已读过的：unseen（还没被模型看见）必须跳过
+            if entry[:2] in unseen:
+                continue
+            consumed.append(entry)
+        
         for _, _, block in consumed[: -self.KEEP_RECENT_RESULTS]:
-            if (
-                target_chars is not None
-                and self.estimate_chars(messages) <= target_chars
-            ):
+            if (target_chars is not None and self.estimate_chars(messages) <= target_chars):
                 break
             content = str(block.get("content", ""))
             if len(content) <= 120:
                 continue
             saved_path = self.persisted_output_path(content)
             if not saved_path:
-                saved_path = str(
-                    self.save_output(block.get("tool_use_id", "unknown"), content)
-                )
+                saved_path = str(self.save_output(block.get("tool_use_id", "unknown"), content))
             block["content"] = f"[Earlier tool result saved at {saved_path}]"
         return messages
 
     def fit_tool_results(self, messages: list, target_chars: int) -> list:
-        results = [
-            block
-            for message in messages
-            if message.get("role") == "user"
-            and isinstance(message.get("content"), list)
-            for block in message["content"]
-            if isinstance(block, dict) and block.get("type") == "tool_result"
-        ]
-        for block in sorted(
-            results, key=lambda item: len(str(item.get("content", ""))), reverse=True
-        ):
+        
+        results = []
+        for message in messages:
+            if message.get("role") != "user":
+                continue
+            
+            if not isinstance(message.get("content"), list):
+                continue
+            
+            for block in message["content"]:
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    results.append(block)
+        
+        for block in sorted(results, key=lambda item: len(str(item.get("content", ""))), reverse=True):
             if self.estimate_chars(messages) <= target_chars:
                 break
             output = str(block.get("content", ""))
-            replacement = self.persisted_preview(
-                block.get("tool_use_id", "unknown"), output, preview_chars=1000
-            )
+            replacement = self.persisted_preview(block.get("tool_use_id", "unknown"), output, preview_chars=1000)
             if len(replacement) < len(output):
                 block["content"] = replacement
         return messages
@@ -330,18 +361,21 @@ class CompactManager:
         transcript = self.write_transcript(messages)
         print(f"[transcript saved: {transcript}]")
         tail_start = max(0, len(messages) - self.KEEP_RECENT_MESSAGES)
-        if (
-            tail_start > 0
-            and self.is_tool_result(messages[tail_start])
-            and self.has_tool_use(messages[tail_start - 1])
-        ):
+        if (tail_start > 0 and self.is_tool_result(messages[tail_start]) and self.has_tool_use(messages[tail_start - 1])):
             tail_start -= 1
-        old_history = messages[:tail_start] if tail_start else messages
+            
+        old_history = None
+        if tail_start:
+            old_history = messages[:tail_start]
+        else:
+            old_history = messages
+        
         summary = self.summarize_history(old_history)
-        message = self.summary_message(
-            "Reactive compact", active_request, summary, transcript
-        )
-        return [message, *messages[tail_start:]] if tail_start else [message]
+        message = self.summary_message("Reactive compact", active_request, summary, transcript)
+        
+        if tail_start:
+            return [message, *messages[tail_start:]]
+        return [message]
 
     def prepare(self, messages: list, active_request: str) -> list:
         messages = self.tool_result_budget(messages)
