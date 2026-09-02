@@ -114,7 +114,7 @@ class Loop:
         history = []
         while True:
             try:
-                query = input(f"\n{COLOR_CYAN}s07>>")
+                query = input(f"\n{COLOR_CYAN}s08>>")
             except (EOFError, KeyboardInterrupt):
                 break
 
