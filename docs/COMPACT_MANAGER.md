@@ -1,7 +1,7 @@
 # CompactManager 技术文档
 
-> 对应源码：`compact_manager.py`（本仓库当前版本 389 行）
-> 状态：引擎完整，**尚未接入主循环**（见 §8 未接线清单）
+> 对应源码：`compact_manager.py`（本仓库当前版本 391 行）
+> 状态：引擎完整，**已接入主循环**（`loop.py`，接线细节见 §10）
 
 ## 1. 它解决什么问题
 
@@ -14,7 +14,8 @@ Agent 长对话中，`messages` 列表会无限膨胀：工具结果动辄几万
 2. **语义不破**——绝不破坏 Claude API 的 `tool_use` ↔ `tool_result` 配对规则；
 3. **成本分级**——免费手段（磁盘搬运行）优先，花真钱的（调 LLM 做摘要）垫底。
 
-核心入口只有一个：`prepare(messages, active_request)`。
+核心入口是 `prepare(messages, active_request)`；另有 `reactive_compact`
+（API 报错兜底）与 `compact_history`（模型主动请求）由主循环直接调用，见 §10。
 
 ## 2. 常量速查
 
@@ -157,14 +158,15 @@ prepare(messages, active_request)
 | ④ fit | 仍>50k | 零 API | 中 | 同上 |
 | ⑤ history | 仍>50k | 1次 LLM 调用 | 高（二手摘要） | transcript 在盘 |
 
-\* ③④ 压缩的旧结果如果当初没被 ①/`large_output_hook` 落过盘，全文可能只存在于
+\* ③④ 压缩的旧结果如果当初没被 ① 落过盘，全文可能只存在于
 transcript（② 写过的那份）里——这是链路上已知的信息保全缝隙。
 
-### `reactive_compact`（未接线）
+### `reactive_compact`（被动兜底）
 
 ⑤ 的温和版：只把老历史摘要化，最近 `KEEP_RECENT_MESSAGES=5` 条原样保留
-（同样做 tool_use/tool_result 边界修正）。预留给"API 已报 context overflow
-后被动救火"，目前**无调用方**。
+（同样做 tool_use/tool_result 边界修正）。已接线：主循环捕获到
+`prompt_too_long` / `too many tokens` 类 API 报错后调用它救火并重试一次
+（见 §10.2）。
 
 ## 7. 贯穿全程的不变量（改代码前必读）
 
@@ -182,14 +184,20 @@ transcript（② 写过的那份）里——这是链路上已知的信息保全
    礼貌回传；只有 ⑤⑥ 返回全新列表。调用方不能依赖"拿到新副本"。
 6. **合成内容一律 role=user**：归档标记、摘要消息、工具结果载体都是。
 
-## 8. 已知边界与未接线清单
+## 8. 已知边界与接线现状
 
-- **未接线**（截至本文档）：
-  - `prepare()` 没有任何调用方（loop.py 未集成）；
-  - `tools_manager.py` 的 COMPACT 工具只有 schema 声明，`toolsHandlers`
-    中没有对应处理函数——模型真调用会找不到 handler；
-  - `reactive_compact` 无调用方。
+- **接线现状（s08 已完成，详见 §10）**：
+  - `prepare()`：主循环每轮 `messages.create` 之前调用；
+  - `reactive_compact`：API 报 overflow 时被动救火，带重试上限；
+  - COMPACT 工具：`toolsHandlers` 中**仍无 handler**，但主循环在执行工具前
+    按名字拦截（`block.name == "compact"`），不会再出现"找不到 handler"。
 - **已知坑**：
+  - overflow 判定是对异常文本做小写子串匹配（`prompt_too_long` /
+    `too many tokens`），措辞依赖网关/SDK 版本，换端点可能漏判（漏判则异常照抛）；
+  - `reactive_retries` 在任何一次成功响应后清零——"每轮请求最多触发一次被动压缩"，
+    而非"每个用户回合只有一次机会"，读代码时别搞混；
+  - `compact` 的 `tool_use` 块永远不会收到配对的 `tool_result`（见 §10.3），
+    合法性完全依赖紧随其后的整列表替换，改动该处必须先想清楚配对；
   - `KEEP_RECENT_RESULTS` / `KEEP_RECENT_MESSAGES` 若改成 0，
     `consumed[:-0]` 是空列表，保护逻辑静默反转（`micro_compact`）；
   - `max_chars or 默认值` 写法：显式传 `0` 会被判假走默认值，无法表达"零预算"；
@@ -199,14 +207,54 @@ transcript（② 写过的那份）里——这是链路上已知的信息保全
     消息很多时是可感知的开销（现阶段无所谓）；
   - `summarize_history` 无 try/except、无重试、不检查 `stop_reason`——
     API 故障会一路穿透 `prepare`，生产环境需包降级路径；
+    同理 `compact_history` 落盘 transcript 后才调摘要，摘要失败时
+    磁盘上仍留有本轮全文 transcript 可查。
   - `summary_input` 的返回串含占位提示文本，实际长度可略超 80k（约 +50 字符），
     已知且无害。
 
-## 9. 与其他模块的关系（现状与规划）
+## 9. 与其他模块的关系
 
 | 模块 | 关系 |
 |---|---|
-| `hooks.py` | `large_output_hook` 是工具执行后的单条落盘路径，与 ① 的 `persist_large_output` 使用同一占位符格式（§5 格式A），互为补充 |
-| `tools_manager.py` | 已声明 COMPACT 工具（"Summarize earlier conversation to free context space"），待接 handler → 建议映射到 `prepare` 或 ⑤ |
-| `loop.py` | 规划的集成点：每轮 `client.messages.create` 之前调 `prepare(messages, query)`；⑤ 触发时 `active_request` 即当前用户输入 |
-| `env.py` | 建议增加 `transcriptDir` / `toolResultsDir` 配置项供构造注入 |
+| `hooks.py` | `large_output_hook` 目前只做**日志打印**（>100k 字符时提示），不落盘；大结果落盘完全由 ① `tool_result_budget` 承担 |
+| `tools_manager.py` | COMPACT 工具 schema 已注册进 `self.tools`（模型可见、可调用）；`toolsHandlers` 无对应项，由主循环拦截执行（§10.3）；`subTools` 不含 compact，子代理无法触发 |
+| `loop.py` | 已集成，三个触发点见 §10 |
+| `env.py` | 提供 `transcriptDirPath`（`<workDir>/.transcripts`）与 `toolResultsDirPath`（`<workDir>/.task_outputs/tool-results`），构造时注入 |
+| `.gitignore` | 已排除 `.transcripts/`、`.task_outputs/` 运行时产物 |
+
+## 10. 主循环接线（loop.py，s08）
+
+### 10.1 构造注入
+
+```python
+self.compactManager = CompactManager(
+    self.client, self.env.modelId,
+    self.env.transcriptDirPath, self.env.toolResultsDirPath,
+)
+```
+
+与主循环共享同一个 `Anthropic` 客户端实例；`active_request` 由 `run()`
+把本轮用户 query 传入 `agent_loop`，该回合内所有模型往返共用这一锚点。
+
+### 10.2 三个触发点
+
+| 触发 | 时机 | 动作 |
+|---|---|---|
+| 主动 | 每圈 while 开头、`messages.create` 之前 | `messages[:] = prepare(messages, active_request)` |
+| 被动兜底 | `create` 抛异常且文本命中 overflow 特征 | `messages[:] = reactive_compact(...)` 后 `continue` 重试；`MAX_REACTIVE_RETRIES = 1`，成功响应即清零计数 |
+| 模型主动 | 模型调用 `compact` 工具 | 本轮其余工具结果 append 完成后，`messages[:] = compact_history(...)`（即 ⑤ 核弹） |
+
+所有回填统一用 `messages[:] = ...` **切片赋值**：`prepare` / `compact_history`
+可能返回全新列表（§7 不变量 5），而 `run()` 持有的 `history` 必须是同一对象，
+直接重新绑定会把压缩结果丢在局部变量里。
+
+### 10.3 compact 工具的"悬空 tool_use"
+
+工具执行循环里 `compact` 被拦截：不执行、**不产出** `tool_result`，仅置位
+`compact_requested`。此刻 assistant 消息里那个 `tool_use` 块处于无配对状态
+（形式上违反 §7 不变量 1）。它不会被发给 API——紧随其后的 `compact_history`
+把整个列表替换为单条摘要 user 消息，悬空块随旧历史一起消失。
+
+推论：若日后让 `compact` 与普通工具混在同一批调用里，其余工具的结果会先
+正常 append、一起进入这次归档摘要，然后全部被摘要顶替——模型主动按 compact
+等于**放弃对当批其他工具结果的即时可见性**（盘上仍有 transcript 兜底）。
