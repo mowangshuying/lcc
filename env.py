@@ -12,4 +12,5 @@ class Env:
         self.workDir = os.getcwd() 
         self.workDirPath = Path.cwd()
         self.skillsDirPath = self.workDirPath / "skills"
-        
+        self.transcriptDirPath = self.workDirPath / ".transcripts"
+        self.toolResultsDirPath = self.workDirPath / ".task_outputs" / "tool-results"

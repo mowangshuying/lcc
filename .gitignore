@@ -2,3 +2,6 @@
 /.env
 /.venv1
 /__pycache__
+/.transcripts
+/.task_outputs
+/__pycache__/
