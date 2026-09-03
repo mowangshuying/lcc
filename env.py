@@ -14,3 +14,5 @@ class Env:
         self.skillsDirPath = self.workDirPath / "skills"
         self.transcriptDirPath = self.workDirPath / ".transcripts"
         self.toolResultsDirPath = self.workDirPath / ".task_outputs" / "tool-results"
+        self.memoryDirPath = self.workDirPath / ".memory"
+        self.memoryIndexPath = self.memoryDirPath / "MEMORY.md"
