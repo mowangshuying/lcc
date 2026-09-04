@@ -46,6 +46,7 @@ class MemoryManager:
             return {}, text
         return metadata, parts[2].lstrip()
     
+    @staticmethod
     def memory_slug(name: str) -> str:
         slug = re.sub(r"[^\w]+", "-", name.lower()).strip("-_")
         if slug:
@@ -431,7 +432,7 @@ class MemoryManager:
             "Do not store temporary task status, tool output, assistant assumptions, "
             "or a summary of the current conversation.\n"
             "Return a JSON array of objects with name, type, scope, description, and "
-            f"body. type must be one of: {', '.join(self.env.MEMORY_TYPES)}.\n"
+            f"body. type must be one of: {', '.join(self.MEMORY_TYPES)}.\n"
             "Set scope to persistent only when the information should apply in future "
             "sessions. Use current_task for one-off commands, temporary paths, "
             "current-session restrictions, and current task state. Return [] if "
