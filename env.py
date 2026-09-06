@@ -16,3 +16,4 @@ class Env:
         self.toolResultsDirPath = self.workDirPath / ".task_outputs" / "tool-results"
         self.memoryDirPath = self.workDirPath / ".memory"
         self.memoryIndexPath = self.memoryDirPath / "MEMORY.md"
+        self.taskDirPath = self.workDirPath / ".task"

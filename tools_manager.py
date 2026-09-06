@@ -8,6 +8,9 @@ from hooks import Hooks
 from anthropic import Anthropic
 from env import Env
 from skill_manager import SkillManager
+from task_manager import TaskManager, Task
+from dataclasses import asdict, dataclass
+
 
 
 class ToolsManager:
@@ -48,10 +51,10 @@ class ToolsManager:
             "type": "object",
             "properties": {
                 "path": {"type": "string"},
-                "old_text": {"type": "string"},
-                "new_text": {"type": "string"},
+                "old_string": {"type": "string"},
+                "new_string": {"type": "string"},
             },
-            "required": ["path", "old_text", "new_text"],
+            "required": ["path", "old_string", "new_string"],
         },
     }
 
@@ -128,6 +131,77 @@ class ToolsManager:
         }
     }
 
+
+    #### task_manager
+    CREATE_TASK = {
+        "name": "create_task",
+        "description": "Create a task and return its runtime-generated ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "subject": {"type": "string"},
+                "description": {"type": "string"},
+            },
+            "required": ["subject"],
+            "additionalProperties": False,
+        },
+    }
+
+    UPDATE_TASK = {
+        "name": "update_task",
+        "description": "Add dependencies using IDs returned by create_task.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "string", "pattern": "^task_[0-9a-f]{8}$"},
+                "addBlockedBy": {
+                    "type": "array",
+                    "items": {"type": "string", "pattern": "^task_[0-9a-f]{8}$"},
+                    "minItems": 1,
+                },
+            },
+            "required": ["task_id", "addBlockedBy"],
+            "additionalProperties": False,
+        },
+    }
+
+    LIST_TASKS = {
+        "name": "list_tasks",
+        "description": "List tasks with status, owner, and dependencies.",
+        "input_schema": {"type": "object", "properties": {}},
+    }
+
+    GET_TASK = {
+        "name": "get_task",
+        "description": "Get a task by ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"task_id": {"type": "string"}},
+            "required": ["task_id"],
+        },
+    }
+
+    CLAIM_TASK = {
+        "name": "claim_task",
+        "description": "Claim a pending task whose dependencies are complete.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"task_id": {"type": "string"}},
+            "required": ["task_id"],
+        },
+    }
+
+    COMPLETE_TASK = {
+        "name": "complete_task",
+        "description": "Complete the task claimed by this agent.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"task_id": {"type": "string"}},
+            "required": ["task_id"],
+        },
+    }
+
+
     MAX_SUBAGENT_TURNS = 50
 
     def __init__(self):
@@ -140,6 +214,7 @@ class ToolsManager:
         self.hooks = Hooks()
         self.client = Anthropic(base_url=self.env.httpUrl)
         self.skillManager = SkillManager(self.env.skillsDirPath)
+        self.taskManager  = TaskManager(self.env.taskDirPath)
 
         self.tools = [
             self.bash_info(),
@@ -151,6 +226,12 @@ class ToolsManager:
             self.task_info(),
             self.load_skill_info(),
             self.compact_info(),
+            self.create_task_info(),
+            self.update_task_info(),
+            self.list_tasks_info(),
+            self.get_task_info(),
+            self.claim_task_info(),
+            self.complete_task_info()
         ]
         self.toolsHandlers = {
             "bash": self.run_bash,
@@ -161,6 +242,12 @@ class ToolsManager:
             "todo_write": self.run_todo_write,
             "task": self.run_subagent,
             "load_skill": self.run_load_skill,
+            "create_task": self.run_create_task,
+            "update_task": self.run_update_task,
+            "list_tasks":self.run_list_tasks,
+            "get_task": self.run_get_task,
+            "claim_task": self.run_claim_task,
+            "complete_task": self.run_complete_task,
         }
         self.subTools = [
             self.bash_info(),
@@ -229,6 +316,24 @@ class ToolsManager:
     def compact_info(self):
         return self.COMPACT
 
+    def create_task_info(self):
+        return self.CREATE_TASK
+
+    def update_task_info(self):
+        return self.UPDATE_TASK
+
+    def list_tasks_info(self):
+        return self.LIST_TASKS
+
+    def get_task_info(self):
+        return self.GET_TASK
+
+    def claim_task_info(self):
+        return self.CLAIM_TASK
+
+    def complete_task_info(self):
+        return self.COMPLETE_TASK
+
     ### bash
     def run_bash(self, command: str) -> str:
         dangerous = ["rm -rf /", "sudo", "shutdown", "reboot", "> /dev/"]
@@ -288,13 +393,13 @@ class ToolsManager:
             return f"Error{e}"
 
     ### edit_file
-    def run_edit(self, path: str, old_text: str, new_text: str) -> str:
+    def run_edit(self, path: str, old_string: str, new_string: str) -> str:
         try:
             file_path = self.safe_path(path)
             text = file_path.read_text(encoding="utf-8")
-            if old_text not in text:
+            if old_string not in text:
                 return f"Error: text not found in {path}"
-            file_path.write_text(text.replace(old_text, new_text, 1), encoding="utf-8")
+            file_path.write_text(text.replace(old_string, new_string, 1), encoding="utf-8")
             return f"Edited {path}"
         except Exception as e:
             return f"Error:{e}"
@@ -445,6 +550,49 @@ class ToolsManager:
 
         return f"Subagent stopped after {self.MAX_SUBAGENT_TURNS} turns without a final answer."
 
-    ### load skill
     def run_load_skill(self, name: str) -> str:
         return self.skillManager.load(name)
+
+
+    def run_create_task(self, subject: str, description: str = "") -> str:
+        task = self.taskManager.create_task(subject, description)
+        print(f"[Create] {task.subject}")
+        return f"Created {task.id}: {task.subject}"
+
+    def run_update_task(self, task_id: str, addBlockedBy: list[str]) -> str:
+        task = self.taskManager.update_task(task_id, addBlockedBy)
+        dependencies = ", ".join(task.blockedBy) or "(none)"
+        print(f"[update] {task.subject} blockedBy: {dependencies}")
+        return f"Updated {task.id} blockedBy: {dependencies}"
+
+    def run_list_tasks(self) -> str:
+        tasks = self.taskManager.list_tasks()
+        if not tasks:
+            return "No tasks. Use create_task to add some."
+
+        lines = []
+        for task in tasks:
+            marker = {
+                "pending": "[ ]",
+                "in_progress": "[>]",
+                "completed": "[x]",
+            }.get(task.status, "[?]")
+            dependencies = (
+                f" (blockedBy: {', '.join(task.blockedBy)})" if task.blockedBy else ""
+            )
+            owner = f" [{task.owner}]" if task.owner else ""
+            lines.append(
+                f"{marker} {task.id}: {task.subject} "
+                f"[{task.status}]{owner}{dependencies}"
+            )
+        return "\n".join(lines)
+
+    def run_get_task(self, task_id:str) -> str:
+        return self.taskManager.get_task(task_id)
+
+    def run_claim_task(self, task_id:str) -> str:
+        return self.taskManager.claim_task(task_id, owner="agent")
+
+    def run_complete_task(self, task_id:str) -> str:
+        return self.taskManager.complete_task(task_id, owner="agent")
+    
