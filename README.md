@@ -33,6 +33,8 @@ python loop.py    # 启动目录即沙箱根；q / exit 退出
 | `hooks.py` | UserPromptSubmit / PreToolUse / Stop 钩子总线 |
 | `compact_manager.py` | 会话压缩：主动 + 反应式，transcript 与工具结果落盘 |
 | `skill_manager.py` | 技能发现与 `load_skill` 工具，目录注入系统提示 |
+| `memory_manager.py` | 长期记忆：检索注入、会话提取与合并 |
+| `task_manager.py` | 持久化任务管理：依赖图、状态机与任务工具接线 |
 | `color.py` | 终端颜色常量 |
 | `skills/` | 技能目录（含 `greeting` 示例） |
 
@@ -46,6 +48,8 @@ python loop.py    # 启动目录即沙箱根；q / exit 退出
 | [COMPACT_MANAGER.md](docs/COMPACT_MANAGER.md) | `compact_manager.py` |
 | [SKILL_MANAGER.md](docs/SKILL_MANAGER.md) | `skill_manager.py` |
 | [ENV.md](docs/ENV.md) | `env.py` |
+| [TASK_MANAGER.md](docs/TASK_MANAGER.md) | `task_manager.py` |
+| [MEMORY_MANAGER.md](docs/MEMORY_MANAGER.md) | `memory_manager.py` |
 | [PROMPT.md](docs/PROMPT.md) | 测试专用提示词（手工验证用） |
 
 ## 参考
