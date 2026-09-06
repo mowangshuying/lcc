@@ -35,7 +35,11 @@ class Loop:
             "Act, don't explain.\n\n"            
         )
 
-        prompt_sill = (
+        prompt_temp = (
+            f"Write temporary/test/scratch files under {self.env.tempDirPath}. Never create throwaway files in the project root."
+        )
+
+        prompt_skill = (
             f"Skills available:\n{self.toolsManager.skills_catalog()}\n\n"
             "Use load_skill to read the full instructions when a skill applies."            
         )
@@ -56,8 +60,8 @@ class Loop:
         prompt_memorys.append(prompt_memory_records)
 
         prompts.append(prompt_base)
-        prompts.append(prompt_sill)
-        # prompts.append(prompt_memorys)
+        prompts.append(prompt_temp)
+        prompts.append(prompt_skill)
         for prompt in prompt_memorys:
             prompts.append(prompt)
 

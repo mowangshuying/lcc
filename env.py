@@ -17,3 +17,4 @@ class Env:
         self.memoryDirPath = self.workDirPath / ".memory"
         self.memoryIndexPath = self.memoryDirPath / "MEMORY.md"
         self.taskDirPath = self.workDirPath / ".task"
+        self.tempDirPath = self.workDirPath / ".temp"
