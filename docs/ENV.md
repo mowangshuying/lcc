@@ -1,14 +1,15 @@
 # Env 技术文档
 
-> 对应源码：`env.py`（本仓库当前版本 16 行）
-> 状态：完整，**全模块公用**（loop / tools_manager / hooks / permission
-> 各自实例化；compact_manager 走构造注入不碰本模块）
+> 对应源码：`env.py`（本仓库当前版本 19 行）
+> 状态：完整，**全模块公用**（loop / tools_manager / hooks / permission /
+> task_manager / memory_manager 各自实例化；compact_manager 走构造注入
+> 不碰本模块）
 
 ## 1. 它解决什么问题
 
 集中收口"进程级环境事实"：`.env` 加载、模型端点与型号、工作区位置、
-三个派生目录。所有需要环境信息的类都从这里取值，避免散落的
-`os.getenv` / `os.getcwd`。
+五个派生目录与一个索引文件路径。所有需要环境信息的类都从这里取值，
+避免散落的 `os.getenv` / `os.getcwd`。
 
 ## 2. 字段速查
 
@@ -17,10 +18,13 @@
 | `httpUrl` | `ANTHROPIC_BASE_URL` | `Anthropic(base_url=...)`；未设则 None（SDK 走官方端点） |
 | `modelId` | `MODEL_ID` | 主循环与子代理 `messages.create` 的 model 参数 |
 | `workDir` | `os.getcwd()`（str） | bash 子进程 cwd、系统提示词里的位置描述 |
-| `workDirPath` | `Path.cwd()` | **工作区围栏基准**：permission 规则 1、`safe_path`、glob root 全都以它为界 |
+| `workDirPath` | `Path.cwd()` | **工作区围栏基准**：permission 规则 1、`safe_path`、glob root、TaskManager 的 resolve 基准（`task_manager.py:31`）全都以它为界 |
 | `skillsDirPath` | `<cwd>/skills` | 传给 `SkillManager` 构造（SKILL_MANAGER.md §2） |
 | `transcriptDirPath` | `<cwd>/.transcripts` | 传给 `CompactManager`：对话归档 JSONL（COMPACT_MANAGER.md §3） |
 | `toolResultsDirPath` | `<cwd>/.task_outputs/tool-results` | 传给 `CompactManager`：大工具结果落盘 |
+| `memoryDirPath` | `<cwd>/.memory` | `MemoryManager` 自建使用（memory_manager.py:126、133，MEMORY_MANAGER.md） |
+| `memoryIndexPath` | `memoryDirPath / MEMORY.md` | 记忆索引文件路径（env.py:18），由 `MemoryManager` 读写 |
+| `taskDirPath` | `<cwd>/.task` | 传给 `TaskManager` 构造（tools_manager.py:217），任务 JSON 落盘目录（TASK_MANAGER.md §3） |
 
 `workDir` 与 `workDirPath` 是同一目录的两种形态（str / Path），
 分别服务 shell 子进程和 pathlib 运算——改动时两者必须同步。
@@ -40,25 +44,27 @@ if os.getenv("ANTHROPIC_BASE_URL"):
    （`x-api-key`，即 SDK 稍后从环境变量自取的 `ANTHROPIC_API_KEY`），
    避免 bearer-token 与 api-key 同时发出被网关拒绝。
    **顺序依赖**：必须先建 `Env()` 再建 `Anthropic()` 客户端，SDK 是在
-   客户端构造时才读取环境变量的（loop.py:14→16、tools_manager.py:134→141
+   客户端构造时才读取环境变量的（loop.py:15→17、tools_manager.py:208→215
    都恰好满足，改动构造顺序会静默失效）。
 
-## 4. 不是单例：一次启动会 new 六个
+## 4. 不是单例：一次启动会 new 八个
 
 无单例模式，每个持有方自己 `Env()`：
 
 ```
-Loop.env (loop.py:14)
+Loop.env (loop.py:15)
 ├─ Loop 的 Hooks.env (hooks.py:8)
 │   └─ 其 Permission.env (permission.py:7)
-└─ ToolsManager.env (tools_manager.py:134)
+├─ Loop 的 MemoryManager.env (memory_manager.py:32)
+└─ ToolsManager.env (tools_manager.py:208)
     ├─ 其 Hooks.env (hooks.py:8)
     │   └─ 其 Permission.env (permission.py:7)
+    └─ 其 TaskManager.env (task_manager.py:24)
 ```
 
-（CompactManager 例外——目录由 loop.py:19-24 注入，不持有 Env。）
+（CompactManager 例外——目录由 loop.py:20-25 注入，不持有 Env。）
 
-后果：启动时 `load_dotenv` 执行 6 次（幂等，只有微小开销）；
+后果：启动时 `load_dotenv` 执行 8 次（幂等，只有微小开销）；
 更重要的语义是**每个实例都是构造时刻的快照**——运行期改
 `os.environ` 不会传导到已存在的任何 `Env()`。
 
@@ -84,9 +90,11 @@ Loop.env (loop.py:14)
 
 ## 7. 运行时产物与仓库卫生
 
-`.transcripts/`、`.task_outputs/` 两个派生目录已被 `.gitignore` 排除；
-目录本身是懒创建（CompactManager 首次落盘才 mkdir），Env 只负责给路径
-不负责建目录。
+`.transcripts/`、`.task_outputs/`、`.memory/`、`.task/` 四个派生目录
+已被 `.gitignore` 排除（`.gitignore` 第 5、6、8、9 行）；目录本身都是懒创建
+（`.transcripts`/`.task_outputs` 由 CompactManager 首次落盘时 mkdir，
+`.memory` 由 MemoryManager，`.task` 由 TaskManager 首次建任务时），
+Env 只负责给路径不负责建目录。
 
 ## 8. 不变量（改代码前必读）
 
@@ -96,16 +104,18 @@ Loop.env (loop.py:14)
    反转它会改变部署行为；
 3. pop `ANTHROPIC_AUTH_TOKEN` 是对**全局** `os.environ` 的副作用，
    同进程其他组件若指望该变量需在此之后读取；
-4. 围栏三目录一律从 `workDirPath` 派生，不要出现第二基准
-   （如 `__file__` 所在目录）。
+4. 所有派生路径（`skillsDirPath` 至 `taskDirPath`，env.py:14-19）一律
+   从 `workDirPath` 派生，不要出现第二基准（如 `__file__` 所在目录）。
 
 ## 9. 与其他模块的关系
 
 | 模块 | 关系 |
 |---|---|
-| `loop.py` | 建 Env → 建 client → 建 ToolsManager → 注入 CompactManager（顺序依赖见 §3.2） |
+| `loop.py` | 建 Env → 建 client → 建 ToolsManager → 注入 CompactManager → 建 MemoryManager（顺序依赖见 §3.2） |
 | `tools_manager.py` | 持 Env；bash 用 `workDir`，文件围栏用 `workDirPath` |
 | `permission.py` | 规则 1 的围栏基准（PERMISSION.md §4） |
-| `skill_manager.py` | 不直接用 Env，目录经构造参数传入（tools_manager.py:142 取 `skillsDirPath`） |
+| `skill_manager.py` | 不直接用 Env，目录经构造参数传入（tools_manager.py:216 取 `skillsDirPath`） |
 | `compact_manager.py` | 两个产物目录路径的注入来源 |
-| `.gitignore` | 排除 `.env`、`.transcripts/`、`.task_outputs/` |
+| `memory_manager.py` | 自带 `Env()` 实例（memory_manager.py:32），读 `memoryDirPath`/`memoryIndexPath` |
+| `task_manager.py` | 自带 `Env()` 实例（task_manager.py:24）；但落盘目录经构造参数传入（tools_manager.py:217 取 `taskDirPath`） |
+| `.gitignore` | 排除 `.env`、`.transcripts/`、`.task_outputs/`、`.memory/`、`.task/` |

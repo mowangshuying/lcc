@@ -261,7 +261,7 @@ consolidate_memories()
    重建一次索引——10 条新增 = 10 次全目录重写。库小无感，靠合并封顶 30 条续命；
 7. **检索截断无标记**：`content[:remaining]`（348）从中间硬切，不像
    tools_manager 的 `run_bash` 至少没有省略号，这里同样没有任何"已截断"
-   提示，模型拿到半截正文无从知晓（TOOLS_MANAGER.md §10.3 同款问题）；
+   提示，模型拿到半截正文无从知晓（TOOLS_MANAGER.md §11.3 同款问题）；
 8. **f-string 嵌套同型引号**：`memory_manager.py:274` 的
    `f"{record['name']} {record["description"]}"` 与 `:364` 的
    `f"{message.get("role", "unknown")}: …"` 依赖 PEP 701，
