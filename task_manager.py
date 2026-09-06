@@ -5,6 +5,7 @@ from env import Env
 import re
 import secrets
 import json
+from datetime import datetime
 
 @dataclass
 class Task:
@@ -13,6 +14,7 @@ class Task:
     description: str
     status: str
     owner: str | None
+    timestamp:float
     # 任务的依赖列表
     blockedBy: list[str]
 
@@ -23,6 +25,7 @@ class TaskManager:
     def __init__(self, directory: Path):
         self.env = Env()
         self.directory = directory
+        #  datetime.now().timestamp()
 
     ### 返回task的根目录
     def _root(self, create: bool = False) -> Path:
@@ -61,6 +64,7 @@ class TaskManager:
                         description=description,
                         status="pending",
                         owner=None,
+                        timestamp=datetime.now().timestamp(),
                         blockedBy=[])
 
             try:
