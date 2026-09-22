@@ -68,6 +68,37 @@ class Loop:
 
         return "\n\n".join(prompts)
 
+    def inject_background_results(self, messages: list):
+        notifications = self.toolsManager.backgroundTasksManager.collect_background_results()
+        if not notifications:
+            return
+        
+        blocks = []
+        for notification in notifications:
+            blocks.append({
+                "type": "text",
+                "text": notification,
+            })
+            
+        if messages:
+            if messages[-1].get("role") == "user":
+                content = messages[-1].get("content", "")
+                if isinstance(content, list):
+                    content.extend(blocks)
+                else:
+                    messages[-1]["content"] = [
+                        {"type": "text", "text": content},
+                        *blocks,
+                    ]
+            else:
+                messages.append({
+                    "role": "user",
+                    "content": blocks,
+                })
+        print("[Background notifications]" + "\n".join(notifications))
+        return len(notifications)
+        
+
     ### loop;
     def agent_loop(self, messages: list, active_request: str):
         rounds_since_todo = 0
@@ -75,6 +106,7 @@ class Loop:
         releavant_memories = self.memoryManager.load_memories(messages)
         self.system_prompt = self.build_system_prompt(releavant_memories)
         while True:
+            self.inject_background_results(messages)
             messages[:] = self.compactManager.prepare(messages, active_request)
             
             try:
