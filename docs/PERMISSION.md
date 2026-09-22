@@ -86,21 +86,21 @@ check_permission(block)
   注册为 PreToolUse 的**第一个**回调（hooks.py:18），排在
   `log_before_use_tool_hook` 之前；`trigger_hooks` 顺序执行、首个非 None
   短路（hooks.py:27-32）→ 被拦截的调用连 `[HOOK]` 日志都不会打印；
-- 消费方 `ToolsManager.execute_tool`（tools_manager.py:188-190）：
+- 消费方 `ToolsManager.execute_tool`（tools_manager.py:281-283）：
   PreToolUse 返回非空即 `return str(blocked)`——handler 不执行，拒绝文本
   作为 tool_result 回填给模型，**且 PostToolUse 整条链都不触发**；
-- 两个入口共用同一条拦截链：主循环 `loop.py:86` 与子代理
-  `tools_manager.py:437` 都调 `execute_tool`，走同一个 `self.hooks` →
+- 两个入口共用同一条拦截链：主循环 `loop.py:162` 与子代理
+  `tools_manager.py:554` 都调 `execute_tool`，走同一个 `self.hooks` →
   同一个 `Permission`，**子代理不享受任何豁免**；
 - 注意一个实例化细节：`Hooks` 在全仓库其实被 new 了**两次**
-  （`loop.py:15` 与 `tools_manager.py:140`，各带一个 `Permission`），但
+   （`loop.py:16` 与 `tools_manager.py:219`，各带一个 `Permission`），但
   PreToolUse 只从 tools_manager 那份触发；loop 自己那份的 permission
   回调实际永不执行（详见 HOOKS.md §6）。
 
 ## 7. 纵深防御与不变量（改代码前必读）
 
 1. **规则 1 只是"问人"，硬线在 `safe_path`**：即使用户对越界路径答了 Y，
-   `run_read/run_write/run_edit` 内部的 `safe_path`（tools_manager.py:264）
+   `run_read/run_write/run_edit` 内部的 `safe_path`（tools_manager.py:381）
    仍会 `raise ValueError`，被 handler 的 `except Exception` 转成
    `Error:...` 文本。想把工作区真正放开，两处都得改；
 2. **deny list 优先于人工放行**：`sudo` 在列表里，任何含 `sudo` 子串的
