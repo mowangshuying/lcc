@@ -10,6 +10,7 @@ from env import Env
 from skill_manager import SkillManager
 from task_manager import TaskManager, Task
 from dataclasses import asdict, dataclass
+from background_tasks_manager import BackgroundTasksManager
 
 
 
@@ -19,7 +20,10 @@ class ToolsManager:
         "description": "Run a shell command.",
         "input_schema": {
             "type": "object",
-            "properties": {"command": {"type": "string"}},
+            "properties": {
+                "command": {"type": "string"},
+                "run_in_background":{"type": "boolean"},
+            },
             "required": ["command"],
         },
     }
@@ -215,6 +219,7 @@ class ToolsManager:
         self.client = Anthropic(base_url=self.env.httpUrl)
         self.skillManager = SkillManager(self.env.skillsDirPath)
         self.taskManager  = TaskManager(self.env.taskDirPath)
+        self.backgroundTasksManager = BackgroundTasksManager()
 
         self.tools = [
             self.bash_info(),
@@ -275,13 +280,25 @@ class ToolsManager:
         blocked = self.hooks.trigger_hooks("PreToolUse", block)
         if blocked:
             return str(blocked)
-
-        ### 工具路由
-        handler = handlers.get(block.name)
-        if not handler:
-            output = f"Unknown:{block.name}"
+        
+        if self.backgroundTasksManager.should_run_background(block.name, block.input):
+            try:
+                task_id = self.backgroundTasksManager.start_background_task(block)
+                output = (
+                    f"[Background task {task_id} started] "
+                    f"The result will be collected on a later turn."
+                )
+            except Exception as error:
+                output = f"[Background task start error] {error}"
+        
         else:
-            output = handler(**block.input)
+
+            ### 工具路由
+            handler = handlers.get(block.name)
+            if not handler:
+                output = f"Unknown:{block.name}"
+            else:
+                output = handler(**block.input)
 
         self.hooks.trigger_hooks("PostToolUse", block, output)
         return str(output)
@@ -346,25 +363,8 @@ class ToolsManager:
         if found:
             return "Error: Dangerous command blocked"
 
-        try:
-            r = subprocess.run(
-                command,
-                shell=True,
-                cwd=self.env.workDir,
-                capture_output=True,
-                text=True,
-                errors="replace",
-                timeout=120,
-            )
-            out = (r.stdout + r.stderr).strip()
-            if out:
-                return out[:50000]
-            else:
-                return "(no output)"
-        except subprocess.TimeoutExpired:
-            return "Error: Timeout(120s)"
-        except (FileNotFoundError, OSError) as e:
-            return f"Error:{e}"
+        output, exit_code = self.backgroundTasksManager.run_bash_process(command)
+        return self.backgroundTasksManager.format_bash_result(output, exit_code)
 
     def safe_path(self, p: str) -> Path:
         path = (self.env.workDirPath / p).resolve()
