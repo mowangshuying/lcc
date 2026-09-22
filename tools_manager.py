@@ -1,3 +1,4 @@
+import copy
 import subprocess
 from pathlib import Path
 import glob
@@ -255,7 +256,7 @@ class ToolsManager:
             "complete_task": self.run_complete_task,
         }
         self.subTools = [
-            self.bash_info(),
+            self.sub_bash_info(),
             self.read_file_info(),
             self.write_file_info(),
             self.edit_file_info(),
@@ -276,12 +277,12 @@ class ToolsManager:
         return path
     
     ## 工具函数抽出
-    def execute_tool(self, block, handlers: dict) -> str:
+    def execute_tool(self, block, handlers: dict, allow_background: bool = True) -> str:
         blocked = self.hooks.trigger_hooks("PreToolUse", block)
         if blocked:
             return str(blocked)
         
-        if self.backgroundTasksManager.should_run_background(block.name, block.input):
+        if allow_background and self.backgroundTasksManager.should_run_background(block.name, block.input):
             try:
                 task_id = self.backgroundTasksManager.start_background_task(block)
                 output = (
@@ -298,13 +299,24 @@ class ToolsManager:
             if not handler:
                 output = f"Unknown:{block.name}"
             else:
-                output = handler(**block.input)
+                ### run_in_background 不允许时降级为前台执行；
+                ### 同时剔除该参数，避免 handler 收到未知关键字
+                tool_input = dict(block.input)
+                if tool_input.pop("run_in_background", False) and not allow_background:
+                    print("[background] not allowed in this context, running in foreground")
+                output = handler(**tool_input)
 
         self.hooks.trigger_hooks("PostToolUse", block, output)
         return str(output)
 
     def bash_info(self):
         return self.BASH
+
+    ### 子代理专用 bash：不暴露 run_in_background，从源头禁止后台任务
+    def sub_bash_info(self):
+        info = copy.deepcopy(self.BASH)
+        info["input_schema"]["properties"].pop("run_in_background", None)
+        return info
 
     def read_file_info(self):
         return self.READ_FILE
@@ -539,7 +551,7 @@ class ToolsManager:
 
             results = []
             for block in tool_calls:
-                output = self.execute_tool(block, self.subToolsHandlers)
+                output = self.execute_tool(block, self.subToolsHandlers, allow_background=False)
                 results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,
