@@ -255,7 +255,6 @@ class ToolsManager:
         self.taskManager  = TaskManager(self.env.taskDirPath)
         self.backgroundTasksManager = BackgroundTasksManager()
         self.cronScheduler = CronScheduler()
-        self.cronScheduler.start_runtime_threads()
 
         self.tools = [
             self.bash_info(),
