@@ -245,6 +245,7 @@ class Loop:
 
     def run(self):
         history = []
+        self._start_stdin_reader()
         self.toolsManager.cronScheduler.start_runtime_threads()
         while True:
             kind, payload = self.wait_for_cli_event()
