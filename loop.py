@@ -265,8 +265,8 @@ class Loop:
                 fired = self.toolsManager.cronScheduler.consume_cron_queue()
                 for job in fired:
                     history.append({"role": "user", "content": f"[Scheduled] {job.prompt}"})
-                    print(f"[cron] delivered {job.id}: {job.prompt[:60]}")              
-            
+                    print(f"[cron] delivered {job.id}: {job.prompt[:60]}")
+                payload = "\n".join(job.prompt for job in fired)
 
             self.agent_loop(history, payload)
             
