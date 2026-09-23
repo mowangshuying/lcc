@@ -2,10 +2,5 @@
 /.env
 /.venv1
 /__pycache__
-/.transcripts
-/.task_outputs
-/__pycache__/
-/.memory
-/.task
-/.temp
-.scheduled_tasks.json
+__pycache__/
+/.lcc

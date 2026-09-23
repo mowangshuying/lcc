@@ -11,11 +11,14 @@ class Env:
         self.modelId = os.getenv("MODEL_ID")
         self.workDir = os.getcwd() 
         self.workDirPath = Path.cwd()
+        self.lccDirPath = self.workDirPath / ".lcc"
+        self.lccDirPath.mkdir(parents=True, exist_ok=True)
         self.skillsDirPath = self.workDirPath / "skills"
-        self.transcriptDirPath = self.workDirPath / ".transcripts"
-        self.toolResultsDirPath = self.workDirPath / ".task_outputs" / "tool-results"
-        self.memoryDirPath = self.workDirPath / ".memory"
+        self.transcriptDirPath = self.lccDirPath / "transcripts"
+        self.toolResultsDirPath = self.lccDirPath / "task_outputs" / "tool-results"
+        self.memoryDirPath = self.lccDirPath / "memory"
         self.memoryIndexPath = self.memoryDirPath / "MEMORY.md"
-        self.taskDirPath = self.workDirPath / ".task"
-        self.tempDirPath = self.workDirPath / ".temp"
-        self.durablePath = self.workDirPath / ".scheduled_tasks.json"
+        self.taskDirPath = self.lccDirPath / "task"
+        self.tempDirPath = self.lccDirPath / "temp"
+        self.tempDirPath.mkdir(parents=True, exist_ok=True)
+        self.durablePath = self.lccDirPath / "scheduled_tasks.json"
