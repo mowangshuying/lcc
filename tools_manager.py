@@ -227,8 +227,8 @@ class ToolsManager:
             "type": "object", 
             "properties": {}, 
             "required": []
-            }},
-    
+            }}
+
     
     CANCEL_CRON = {
         "name": "cancel_cron", 
@@ -237,7 +237,7 @@ class ToolsManager:
                 "type": "object",
                 "properties": {"job_id": {"type": "string"}},
                 "required": ["job_id"]
-            }},
+            }}
 
 
     MAX_SUBAGENT_TURNS = 50
