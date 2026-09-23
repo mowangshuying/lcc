@@ -7,14 +7,18 @@ from hooks import *
 from tools_manager import ToolsManager
 from compact_manager import CompactManager
 from memory_manager import MemoryManager
-
-
+import queue
+import sys
+import threading
 class Loop:
     MAX_REACTIVE_RETRIES = 1
     def __init__(self):
         self.env = Env()
         self.hooks = Hooks()
         self.client = Anthropic(base_url=self.env.httpUrl)
+        
+        self.stdinQueue: queue.Queue = queue.Queue()
+        
         self.toolsManager = ToolsManager()
         # self.system_prompt = self.build_system_prompt()
         self.compactManager = CompactManager(
@@ -207,28 +211,73 @@ class Loop:
             messages.append({"role": "user", "content": results})
             if compact_requested:
                 messages[:] = self.compactManager.compact_history(messages, active_request)
+    
+    def reader(self):
+        while True:
+            line = sys.stdin.readline()
+            if line == "":  # EOF：放哨兵后退出线程
+                self.stdinQueue.put(None)
+                return
+            self.stdinQueue.put(line)
+    def _start_stdin_reader(self):
+        threading.Thread(target=self.reader, daemon=True).start()
+                
+    def wait_for_cli_event(self) -> tuple[str, str | None]:
+        prompt_visible = False
+        while True:
+            if self.toolsManager.cronScheduler.has_cron_queue():
+                return "cron", None
+            
+            if not prompt_visible:
+                print("s12>>", end="", flush=True)
+                prompt_visible = True
+                
+            try:
+                line = self.stdinQueue.get(timeout=0.25)
+            except queue.Empty:
+                continue
+            
+            if line is None:
+                return "quit", None
+            
+            return "user", line.rstrip("\n")
+        
 
     def run(self):
         history = []
+        self.toolsManager.cronScheduler.start_runtime_threads()
         while True:
-            try:
-                query = input(f"\n{COLOR_CYAN}s12>>")
-            except (EOFError, KeyboardInterrupt):
+            kind, payload = self.wait_for_cli_event()
+            
+            if kind == "quit":
                 break
+            
+            if kind == "user":
+                if payload.strip().lower() in ("q", "exit", ""):
+                    break
+                
+                self.hooks.trigger_hooks("UserPromptSubmit", payload)
+                history.append({"role": "user", "content": payload})
+                
+                
+            if kind == "cron":
+                fired = self.toolsManager.cronScheduler.consume_cron_queue()
+                for job in fired:
+                    history.append({"role": "user", "content": f"[Scheduled] {job.prompt}"})
+                    print(f"[cron] delivered {job.id}: {job.prompt[:60]}")              
+            
 
-            if query.strip().lower() in ("q", "exit", ""):
-                break
-
-            self.hooks.trigger_hooks("UserPromptSubmit", query)
-            history.append({"role": "user", "content": query})
-
-            self.agent_loop(history, query)
+            self.agent_loop(history, payload)
+            
+            if kind == "cron":
+                self.toolsManager.cronScheduler.acknowledge_cron_jobs(fired)
 
             lst_content = history[-1]["content"]
             if isinstance(lst_content, list):
                 for block in lst_content:
                     if getattr(block, "type", None) == "text":
                         print(f"{COLOR_DEFAULT}text:{block.text}{COLOR_DEFAULT}")
+        self.toolsManager.cronScheduler.stop_runtime_threads()
 
 
 ### 主函数

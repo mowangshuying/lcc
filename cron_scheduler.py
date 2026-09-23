@@ -31,6 +31,8 @@ class CronScheduler:
         self.runtime_lock = threading.Lock()
         self.agent_lock = threading.Lock()
         self.session_history:list = []
+        
+        self.scheduler_loop_thread: threading.Thread | None = None
     
     # * 任意值
     # */N 取模为0  */15
@@ -356,11 +358,14 @@ class CronScheduler:
     def cron_scheduler_loop(self):
         while not self.runtime_stop.wait(1.0):
             self.poll_due_jobs(datetime.now())
-        
-                        
-        
-                               
-        
             
+    def start_runtime_threads(self):
+        self.scheduler_loop_thread = threading.Thread(target=self.cron_scheduler_loop, daemon=True)
+        self.scheduler_loop_thread.start()
+        self.runtime_started = True
+    def stop_runtime_threads(self):
+        if not self.runtime_started: 
+            return
         
-    
+        self.scheduler_loop_thread.join(timeout=1)
+        self.runtime_started = False
