@@ -51,7 +51,8 @@ class CronScheduler:
             for part in field.split(","):
                 if self._cron_field_matches(part, value):
                     return True
-                
+            return False
+        
         if "-" in field:
             start, end = field.split("-", 1)
             return int(start) <= value <= int(end)
