@@ -134,7 +134,7 @@ EDIT_FILE = {
 
 `subTools`（258-264）只收 `bash`/`read_file`/`write_file`/`edit_file`/`glob`
 五个通用文件工具；其余 10 个（todo_write、task、load_skill、compact 与 6 个
-任务依赖工具）主循环独享——防递归 fork、拦截语义只存在于主循环、`.task/`
+任务依赖工具）主循环独享——防递归 fork、拦截语义只存在于主循环、`.lcc/task/`
 看板归主代理（§10 不变量 5）。
 
 子代理的 `bash` 用的是 `sub_bash_info()`（316-319）而非 `bash_info()`：`deepcopy`
@@ -307,7 +307,7 @@ schema 定义与登记方式与前 9 个工具完全同构（参数总表见 §2
   （574），与 schema 属性名逐字一致（§10 不变量 3、§2.4），改哪头都得同步；
 - `run_list_tasks`（580-600）渲染 `[ ]/[>]/[x]` + status + owner +
   blockedBy，观感刻意贴近 `update_todos`（§6.4），但事实来源是
-  `.task/` 目录里的 JSON 文件，不是消息流；
+   `.lcc/task/` 目录里的 JSON 文件，不是消息流；
 - 6 个工具都**不在** `subTools`（258-264）——子代理碰不到任务体系，
   与 §10 不变量 5 的收窄原则一致。
 
@@ -382,7 +382,7 @@ if not path.is_relative_to(env.workDirPath): raise ValueError(...)
 4. `compact` 的"schema 注册但无 handler"是全库唯一例外，受主循环拦截
    保护（§8）；
 5. 子代理永远不得获得 `task`（防递归 fork）、`compact`（拦截语义只在
-   主循环实现）与 §6.6 的任务工具（`.task/` 状态归主代理独享）。
+   主循环实现）与 §6.6 的任务工具（`.lcc/task/` 状态归主代理独享）。
 
 ## 11. 已知坑点
 

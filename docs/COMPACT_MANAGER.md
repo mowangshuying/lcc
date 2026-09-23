@@ -219,8 +219,8 @@ transcript（② 写过的那份）里——这是链路上已知的信息保全
 | `hooks.py` | `large_output_hook` 目前只做**日志打印**（>100k 字符时提示），不落盘；大结果落盘完全由 ① `tool_result_budget` 承担 |
 | `tools_manager.py` | COMPACT 工具 schema 已注册进 `self.tools`（模型可见、可调用）；`toolsHandlers` 无对应项，由主循环拦截执行（§10.3）；`subTools` 不含 compact，子代理无法触发 |
 | `loop.py` | 已集成，三个触发点见 §10 |
-| `env.py` | 提供 `transcriptDirPath`（`<workDir>/.transcripts`）与 `toolResultsDirPath`（`<workDir>/.task_outputs/tool-results`），构造时注入 |
-| `.gitignore` | 已排除 `.transcripts/`、`.task_outputs/` 运行时产物 |
+| `env.py` | 提供 `transcriptDirPath`（`<workDir>/.lcc/transcripts`）与 `toolResultsDirPath`（`<workDir>/.lcc/task_outputs/tool-results`），构造时注入 |
+| `.gitignore` | 已排除 `.lcc/` 下运行时产物（`.lcc/transcripts/`、`.lcc/task_outputs/`） |
 
 ## 10. 主循环接线（loop.py，s08）
 

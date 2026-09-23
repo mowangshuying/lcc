@@ -44,7 +44,7 @@
 ## 3. 存储模型与路径围栏
 
 ```
-<workDir>/.task/            ← env.py:19  taskDirPath；.gitignore 第 9 行 /.task
+<workDir>/.lcc/task/        ← env.py:21  taskDirPath；.gitignore 第 6 行 /.lcc
 ├── task_5dea2769.json      ← 一任务一文件，文件名 = id + ".json"
 └── task_f7e35c92.json
 ```
@@ -219,7 +219,7 @@ pending ────────────────────────
 3. **依赖只在"pending 且未认领"窗口可改**（103-104），且 `update_dependencies`
    是唯一加边入口——DAG 无环由第 5 层校验守住；
 4. **文件是唯一事实源**：save 整文件覆写，无内存缓存；两个 TaskManager
-   实例同读 `.task` 也互不踩踏（但见 §9.2 的存在性竞态说明）；
+   实例同读 `.lcc/task` 也互不踩踏（但见 §9.2 的存在性竞态说明）；
 5. **`from __future__ import annotations`（第 1 行）不可删**：原因见 §10.1；
 6. schema 必须是 dict 且三处登记齐全（§6）。
 
@@ -231,8 +231,8 @@ pending ────────────────────────
 | ID 随机源 | `secrets.token_hex(4)` | task_manager.py:62 |
 | create 重试 | 100 次 | task_manager.py:61 |
 | 合法状态 | `pending/in_progress/completed` | task_manager.py:130 |
-| 存储目录 | `<workDir>/.task` | env.py:19 |
-| git 忽略 | `/.task` | .gitignore:9 |
+| 存储目录 | `<workDir>/.lcc/task` | env.py:21 |
+| git 忽略 | `/.lcc` | .gitignore:6 |
 
 ## 9. 已知坑
 
@@ -248,12 +248,12 @@ pending ────────────────────────
    `self.directory.resolve(self.env.workDirPath)` 疑似想"相对路径以
    workDirPath 为基准解析"，但 `Path.resolve()` 的第一个位置参数是
    `strict`——传 Path 恒为真值，**等效 `strict=True`**；基准语义完全没
-   发生（目录恒为绝对路径 env.py:19，也无从发生）。副作用：`.task` 目录
+    发生（目录恒为绝对路径 env.py:21，也无从发生）。副作用：`.lcc/task` 目录
    不存在时，任何经 `_path`→`_root(create=False)` 的读操作
    （exists/load/claim/get/update）直接 `FileNotFoundError`。唯一幸免的是
     `list`——137-139 先判了 `directory.exists()` 返回 `[]`。正常运行时模型
    必先 create_task（建目录）才可能有 ID，故日常不触发；但**手工删掉
-   `.task` 目录再让模型 claim/get 老任务**就会炸穿主循环。
+    `.lcc/task` 目录再让模型 claim/get 老任务**就会炸穿主循环。
 3. **脏文件毒死 list()**（task_manager.py:144-145）：glob 模式
    `task_*.json` 比 ID 正则宽，混进一个 `task_ZZZ.json` 之类的文件，
    load 即 `ValueError: Invalid task ID`，`run_list_tasks` 无保护 →
@@ -307,8 +307,8 @@ pending ────────────────────────
 | 模块 | 关系 |
 |---|---|
 | `tools_manager.py` | 唯一消费方：`tools_manager.py:12` 导入、`tools_manager.py:222` 以 `env.taskDirPath` 构造；6 schema（141-207）、`self.tools` 注册（235-240）、`toolsHandlers` 路由（251-256）、`run_*` 封装（569-609）；子代理 `subTools`（258-264）不含 task |
-| `env.py` | 提供 `taskDirPath = <workDir>/.task`（env.py:19）与工作区基准 `workDirPath`（`_root` 逃逸检查的参照物） |
-| `.gitignore` | `/.task`（.gitignore:9）——运行时看板不入版本库 |
+| `env.py` | 提供 `taskDirPath = <workDir>/.lcc/task`（env.py:21）与工作区基准 `workDirPath`（`_root` 逃逸检查的参照物） |
+| `.gitignore` | `/.lcc`（.gitignore:6）——运行时看板不入版本库 |
 | `loop.py` | 无直接引用；6 工具经 `execute_tool` 常规路由执行（无 compact 式拦截） |
 | `todo_write`（tools_manager 内） | 同仓库两套"任务"，互不感知：todo 是会话内视图，task 是跨会话看板；风格上也刻意没共用代码 |
-| `hooks.py` / `permission.py` | 与所有工具一样，task 工具同样过 Pre/PostToolUse 闸门（TOOLS_MANAGER.md §5）——目前没有 hook 对文件写操作拦截 `.task` 的既有语义 |
+| `hooks.py` / `permission.py` | 与所有工具一样，task 工具同样过 Pre/PostToolUse 闸门（TOOLS_MANAGER.md §5）——目前没有 hook 对文件写操作拦截 `.lcc/task` 的既有语义 |

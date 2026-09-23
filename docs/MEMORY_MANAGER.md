@@ -8,7 +8,7 @@
 
 给 agent 一个跨会话的持久记忆库：把"记忆"这件事的四块拼在一起——
 
-1. **存储**（放哪、什么格式）：`.memory/` 目录，一条记忆一个 Markdown
+1. **存储**（放哪、什么格式）：`.lcc/memory/` 目录，一条记忆一个 Markdown
    文件（YAML frontmatter + 正文），外加一份自动重建的 `MEMORY.md` 索引；
 2. **检索**（什么时候想起哪几条）：每次用户请求开始时，用一次 LLM 调用
    从记忆目录里选相关条目（失败降级为关键词打分），全文注入系统提示；
@@ -45,9 +45,9 @@
 
 ### 3.1 目录与路径围栏
 
-- 存储根：`env.memoryDirPath` = `<workDir>/.memory`（`env.py:17`），
+- 存储根：`env.memoryDirPath` = `<workDir>/.lcc/memory`（`env.py:19`），
   已被 `.gitignore` 忽略（commit `e8046cb` 引入）；
-- 索引文件：`env.memoryIndexPath` = `.memory/MEMORY.md`（`env.py:18`）；
+- 索引文件：`env.memoryIndexPath` = `.lcc/memory/MEMORY.md`（`env.py:20`）；
 - `memory_path(filename, allow_index=False)`（`memory_manager.py:56-69`）
   是所有读写的必经围栏，四道检查：文件名不得含目录分隔符 → 不得（在
   非 `allow_index` 时）触碰索引 → 记忆根必须在工作区内 → 解析后路径
@@ -57,7 +57,7 @@
 ### 3.2 单条记忆文件格式
 
 `write_memory_file`（`memory_manager.py:118-130`）落盘
-`.memory/<slug>.md`，内容由 `memory_document`（`memory_manager.py:110-116`）
+`.lcc/memory/<slug>.md`，内容由 `memory_document`（`memory_manager.py:110-116`）
 生成：
 
 ```markdown
@@ -207,7 +207,7 @@ consolidate_memories()
    返回新条数；外层 except 统一打印 "[Memory: consolidation skipped: …]" return 0
 ```
 
-合并是**整库重写**而非增量：LLM 输出什么，`.memory/` 下就是什么（旧条目
+合并是**整库重写**而非增量：LLM 输出什么，`.lcc/memory/` 下就是什么（旧条目
 只要没出现在结果里即被删）。快照回滚保证写盘中途异常不留下半套库。
 
 ## 8. 模型调用一览
@@ -281,8 +281,8 @@ consolidate_memories()
 | 模块 | 关系 |
 |---|---|
 | `loop.py` | 唯一调用方：构造（27）、每请求检索+重建系统提示（106-107）、最终回答后提取、提取有新增才合并（150-152）；模型无 memory 工具，ToolsManager 路由表中不存在本类任何入口 |
-| `env.py` | `memoryDirPath`/`memoryIndexPath` 取自 `env.py:17-18`；围栏用 `workDirPath`；模型与网关地址同源于 ENV.md |
-| `compact_manager.py` | **零直接依赖**。`.memory` 与 `.transcripts` 是两套互不感知的持久层；间接纠葛有二：记忆全文注入 system 不进压缩预算（§10.2）；提取读的是压缩后的 messages 尾部 12 条——压缩丢弃的历史不会被记忆链路"考古" |
+| `env.py` | `memoryDirPath`/`memoryIndexPath` 取自 `env.py:19-20`；围栏用 `workDirPath`；模型与网关地址同源于 ENV.md |
+| `compact_manager.py` | **零直接依赖**。`.lcc/memory` 与 `.lcc/transcripts` 是两套互不感知的持久层；间接纠葛有二：记忆全文注入 system 不进压缩预算（§10.2）；提取读的是压缩后的 messages 尾部 12 条——压缩丢弃的历史不会被记忆链路"考古" |
 | `tools_manager.py` | 无交集；子代理完全没有记忆能力（`run_subagent` 不构造 MemoryManager），子代理对话也不参与主代理的提取（其 messages 不回传） |
 | `hooks.py` / `permission.py` | 无交集：三处模型调用与全部文件写盘均不触发任何 hook、不受 Permission 管——记忆写文件绕过 safe_path 体系，靠自己的 `memory_path` 围栏 |
-| `.gitignore` | `/.memory` 已忽略（commit `e8046cb`），记忆库不随仓库走 |
+| `.gitignore` | 记忆库随 `/.lcc` 一起忽略（.gitignore 第 6 行；该忽略最初由 commit `e8046cb` 引入），不随仓库走 |

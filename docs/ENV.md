@@ -1,6 +1,6 @@
 # Env 技术文档
 
-> 对应源码：`env.py`（本仓库当前版本 20 行）
+> 对应源码：`env.py`（本仓库当前版本 24 行）
 > 状态：完整，**全模块公用**（loop / tools_manager / hooks / permission /
 > task_manager / memory_manager / background_tasks_manager 各自实例化；
 > compact_manager 走构造注入不碰本模块）
@@ -20,12 +20,12 @@
 | `workDir` | `os.getcwd()`（str） | 系统提示词与 hook 打印里的位置描述（bash 子进程 cwd 用 `workDirPath`） |
 | `workDirPath` | `Path.cwd()` | **工作区围栏基准**：permission 规则 1、`safe_path`、glob root、bash 子进程 cwd、TaskManager 的 resolve 基准（`task_manager.py:31`）全都以它为界 |
 | `skillsDirPath` | `<cwd>/skills` | 传给 `SkillManager` 构造（SKILL_MANAGER.md §2） |
-| `transcriptDirPath` | `<cwd>/.transcripts` | 传给 `CompactManager`：对话归档 JSONL（COMPACT_MANAGER.md §3） |
-| `toolResultsDirPath` | `<cwd>/.task_outputs/tool-results` | 传给 `CompactManager`：大工具结果落盘 |
-| `memoryDirPath` | `<cwd>/.memory` | `MemoryManager` 自建使用（memory_manager.py:126、133，MEMORY_MANAGER.md） |
-| `memoryIndexPath` | `memoryDirPath / MEMORY.md` | 记忆索引文件路径（env.py:18），由 `MemoryManager` 读写 |
-| `taskDirPath` | `<cwd>/.task` | 传给 `TaskManager` 构造（tools_manager.py:222），任务 JSON 落盘目录（TASK_MANAGER.md §3） |
-| `tempDirPath` | `<cwd>/.temp` | 临时/试验文件目录（系统提示要求一次性文件写入此处，loop.py:38-40） |
+| `transcriptDirPath` | `<cwd>/.lcc/transcripts` | 传给 `CompactManager`：对话归档 JSONL（COMPACT_MANAGER.md §3） |
+| `toolResultsDirPath` | `<cwd>/.lcc/task_outputs/tool-results` | 传给 `CompactManager`：大工具结果落盘 |
+| `memoryDirPath` | `<cwd>/.lcc/memory` | `MemoryManager` 自建使用（memory_manager.py:126、133，MEMORY_MANAGER.md） |
+| `memoryIndexPath` | `memoryDirPath / MEMORY.md` | 记忆索引文件路径（env.py:20），由 `MemoryManager` 读写 |
+| `taskDirPath` | `<cwd>/.lcc/task` | 传给 `TaskManager` 构造（tools_manager.py:222），任务 JSON 落盘目录（TASK_MANAGER.md §3） |
+| `tempDirPath` | `<cwd>/.lcc/temp` | 临时/试验文件目录（系统提示要求一次性文件写入此处，loop.py:42-44；由 `Env.__init__` 自动 mkdir） |
 
 `workDir` 与 `workDirPath` 是同一目录的两种形态（str / Path）：
 `workDir` 服务系统提示词与 hook 打印，`workDirPath` 服务围栏与
@@ -76,7 +76,7 @@ Loop.env (loop.py:15)
 所有路径基准都是**进程启动目录**（`Path.cwd()`），不是仓库或源码位置：
 
 - 从 `D:\other` 下运行 `python D:\...\lcc\loop.py`，则 skills 只会在
-  `D:\other\skills` 找、transcript 会写到 `D:\other\.transcripts`、
+  `D:\other\skills` 找、transcript 会写到 `D:\other\.lcc\transcripts`、
   工作区围栏也以 `D:\other` 为界；
 - permission 越界判定、`safe_path` 硬线、glob 过滤、skills 扫描四个
   安全/功能边界**共享这同一个基准**，一处漂移全体漂移。
@@ -93,11 +93,12 @@ Loop.env (loop.py:15)
 
 ## 7. 运行时产物与仓库卫生
 
-`.transcripts/`、`.task_outputs/`、`.memory/`、`.task/`、`.temp/` 五个派生目录
-已被 `.gitignore` 排除（`.gitignore` 第 5、6、8、9、10 行）；目录本身都是懒创建
-（`.transcripts`/`.task_outputs` 由 CompactManager 首次落盘时 mkdir，
-`.memory` 由 MemoryManager，`.task` 由 TaskManager 首次建任务时），
-Env 只负责给路径不负责建目录。
+运行时产物已全部收敛到 `.lcc/` 目录下：`transcripts/`、`task_outputs/`、
+`memory/`、`task/`、`temp/` 五个派生子目录，连同 `.lcc/scheduled_tasks.json`，
+整体由 `.gitignore` 第 6 行的 `/.lcc` 一条规则排除；其中 `.lcc` 与 `.lcc/temp`
+由 `Env.__init__` 直接 mkdir（`env.py:15、23`，`parents=True, exist_ok=True`），
+其余四个子目录仍是懒创建（`transcripts`/`task_outputs` 由 CompactManager 首次
+落盘时 mkdir，`memory` 由 MemoryManager，`task` 由 TaskManager 首次建任务时）。
 
 ## 8. 不变量（改代码前必读）
 
@@ -107,8 +108,9 @@ Env 只负责给路径不负责建目录。
    反转它会改变部署行为；
 3. pop `ANTHROPIC_AUTH_TOKEN` 是对**全局** `os.environ` 的副作用，
    同进程其他组件若指望该变量需在此之后读取；
-4. 所有派生路径（`skillsDirPath` 至 `tempDirPath`，env.py:14-20）一律
-   从 `workDirPath` 派生，不要出现第二基准（如 `__file__` 所在目录）。
+4. 所有派生路径（`skillsDirPath` 至 `tempDirPath`，env.py:16-22）一律
+   从 `workDirPath` 派生（`.lcc` 下的子目录经 `lccDirPath` 中转，但基准仍是
+   `workDirPath`），不要出现第二基准（如 `__file__` 所在目录）。
 
 ## 9. 与其他模块的关系
 
@@ -122,4 +124,4 @@ Env 只负责给路径不负责建目录。
 | `memory_manager.py` | 自带 `Env()` 实例（memory_manager.py:32），读 `memoryDirPath`/`memoryIndexPath` |
 | `task_manager.py` | 自带 `Env()` 实例（task_manager.py:26）；但落盘目录经构造参数传入（tools_manager.py:222 取 `taskDirPath`） |
 | `background_tasks_manager.py` | 自带 `Env()` 实例（background_tasks_manager.py:12），bash 子进程 cwd 取 `workDirPath` |
-| `.gitignore` | 排除 `.env`、`.transcripts/`、`.task_outputs/`、`.memory/`、`.task/`、`.temp/` |
+| `.gitignore` | 排除 `.env`、`/.lcc`（`.lcc/` 下全部运行时产物，见 §7） |
