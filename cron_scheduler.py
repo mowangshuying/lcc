@@ -360,9 +360,11 @@ class CronScheduler:
             self.poll_due_jobs(datetime.now())
             
     def start_runtime_threads(self):
+        self.load_durable_jobs()
         self.scheduler_loop_thread = threading.Thread(target=self.cron_scheduler_loop, daemon=True)
         self.scheduler_loop_thread.start()
         self.runtime_started = True
+        
     def stop_runtime_threads(self):
         if not self.runtime_started: 
             return
