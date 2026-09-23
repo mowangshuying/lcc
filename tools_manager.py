@@ -12,6 +12,7 @@ from skill_manager import SkillManager
 from task_manager import TaskManager, Task
 from dataclasses import asdict, dataclass
 from background_tasks_manager import BackgroundTasksManager
+from cron_scheduler import *
 
 
 
@@ -205,6 +206,38 @@ class ToolsManager:
             "required": ["task_id"],
         },
     }
+    
+    SCHEDULE_CRON = {
+        "name": "schedule_cron",
+        "description": "Schedule a prompt with a 5-field cron expression.",
+        "input_schema": {
+                "type": "object",
+                "properties": {
+                                    "cron": {"type": "string"},
+                                    "prompt": {"type": "string"},
+                                    "recurring": {"type": "boolean"},
+                                    "durable": {"type": "boolean"}
+                          },
+                "required": ["cron", "prompt"]}}
+    
+    LIST_CRONS = {
+        "name": "list_crons", 
+        "description": "List scheduled cron jobs.",
+        "input_schema": {
+            "type": "object", 
+            "properties": {}, 
+            "required": []
+            }},
+    
+    
+    CANCEL_CRON = {
+        "name": "cancel_cron", 
+        "description": "Cancel a cron job by ID.",
+        "input_schema": {
+                "type": "object",
+                "properties": {"job_id": {"type": "string"}},
+                "required": ["job_id"]
+            }},
 
 
     MAX_SUBAGENT_TURNS = 50
@@ -221,6 +254,8 @@ class ToolsManager:
         self.skillManager = SkillManager(self.env.skillsDirPath)
         self.taskManager  = TaskManager(self.env.taskDirPath)
         self.backgroundTasksManager = BackgroundTasksManager()
+        self.cronScheduler = CronScheduler()
+        self.cronScheduler.start_runtime_threads()
 
         self.tools = [
             self.bash_info(),
@@ -237,7 +272,10 @@ class ToolsManager:
             self.list_tasks_info(),
             self.get_task_info(),
             self.claim_task_info(),
-            self.complete_task_info()
+            self.complete_task_info(),
+            self.schedule_cron_info(),
+            self.list_crons_info(),
+            self.cancel_cron_info(),
         ]
         self.toolsHandlers = {
             "bash": self.run_bash,
@@ -254,6 +292,9 @@ class ToolsManager:
             "get_task": self.run_get_task,
             "claim_task": self.run_claim_task,
             "complete_task": self.run_complete_task,
+            "schedule_cron": self.run_schedule_cron,
+            "list_crons": self.run_list_crons,
+            "cancel_cron": self.run_cancel_cron,
         }
         self.subTools = [
             self.sub_bash_info(),
@@ -362,6 +403,15 @@ class ToolsManager:
 
     def complete_task_info(self):
         return self.COMPLETE_TASK
+    
+    def schedule_cron_info(self):
+        return self.SCHEDULE_CRON
+    
+    def list_crons_info(self):
+        return self.LIST_CRONS
+    
+    def cancel_cron_info(self):
+        return self.CANCEL_CRON
 
     ### bash
     def run_bash(self, command: str) -> str:
@@ -607,4 +657,32 @@ class ToolsManager:
 
     def run_complete_task(self, task_id:str) -> str:
         return self.taskManager.complete_task(task_id, owner="agent")
+    
+    
+    def run_schedule_cron(self, cron: str, prompt: str, recurring: bool = True, durable: bool = True) -> str:
+        result = self.cronScheduler.schedule_job(cron, prompt, recurring, durable)
+        if isinstance(result, str):
+            return f"Error: {result}"
+        return f"Scheduled {result.id}: {cron} -> {prompt}"
+    
+    def run_list_crons(self) -> str:
+        with self.cronScheduler.cron_lock:
+            jobs = list(self.cronScheduler.scheduled_jobs.values())
+        
+        if not jobs:
+            return "No cron jobs."
+
+        lines = []
+        for job in jobs:
+            frequency = "recurring" if job.recurring else "one-shot"
+            storage = "durable" if job.durable else "session"
+            lines.append(
+                f"{job.id}: {job.cron} -> {job.prompt[:60]} "
+                f"[{frequency}, {storage}]"
+            )
+        return "\n".join(lines)
+    
+    def run_cancel_cron(self, job_id: str) -> str:
+        return self.cronScheduler.cancel_job(job_id)
+
     

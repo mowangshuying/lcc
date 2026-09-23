@@ -18,3 +18,4 @@ class Env:
         self.memoryIndexPath = self.memoryDirPath / "MEMORY.md"
         self.taskDirPath = self.workDirPath / ".task"
         self.tempDirPath = self.workDirPath / ".temp"
+        self.durablePath = self.workDirPath / ".scheduled_tasks.json"
