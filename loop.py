@@ -109,15 +109,7 @@ class Loop:
         reactive_retries = 0
         releavant_memories = self.memoryManager.load_memories(messages)
         self.system_prompt = self.build_system_prompt(releavant_memories)
-        
-        
-        # fired = self.toolsManager.cronScheduler.consume_cron_queue()
-        # scheduled_start = len(messages)
-        # for job in fired:
-            # messages.append({"role": "user", "content": f"[Scheduled] {job.prompt}"})
-            # print(f"  [cron] delivered {job.id}: {job.prompt[:60]}")
-        
-        # waiting_for_ack = list(fired)
+
         while True:
             self.inject_background_results(messages)
             messages[:] = self.compactManager.prepare(messages, active_request)
@@ -144,22 +136,11 @@ class Loop:
                     reactive_retries += 1
                     continue
                 
-                # if waiting_for_ack:
-                    # del messages[scheduled_start:]
-                    # self.toolsManager.cronScheduler.restore_cron_jobs(waiting_for_ack)
-                    # print(f"  [error] {type(error).__name__}: {error}")
-                
                 raise
             
 
             ### 将返回内容重新添加至message列表中
             messages.append({"role": "assistant", "content": response.content})
-            # if waiting_for_ack:
-                # try:
-                    # self.toolsManager.cronScheduler.acknowledge_cron_jobs(waiting_for_ack)
-                # except Exception as error:
-                    # print(f"  [cron] acknowledgement failed: {error}")
-                # waiting_for_ack = []
 
             tool_calls = []
             for block in response.content:
