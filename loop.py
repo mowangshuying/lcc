@@ -249,8 +249,13 @@ class Loop:
                     print(f"[cron] delivered {job.id}: {job.prompt[:60]}")
                 payload = "\n".join(job.prompt for job in fired)
 
-            self.agent_loop(history, payload)
-            
+            try:
+                self.agent_loop(history, payload)
+            except Exception:
+                if kind == "cron":
+                    self.toolsManager.cronScheduler.restore_cron_jobs(fired)
+                raise
+
             if kind == "cron":
                 self.toolsManager.cronScheduler.acknowledge_cron_jobs(fired)
 
