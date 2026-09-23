@@ -230,8 +230,6 @@ class Loop:
                     if getattr(block, "type", None) == "text":
                         print(f"{COLOR_DEFAULT}text:{block.text}{COLOR_DEFAULT}")
 
-        self.toolsManager.cronScheduler.stop_runtime_threads()
-
 
 ### 主函数
 if __name__ == "__main__":

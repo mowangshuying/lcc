@@ -355,32 +355,9 @@ class CronScheduler:
         
     def cron_scheduler_loop(self):
         while not self.runtime_stop.wait(1.0):
-            self.poll_due_jobs(datetime.now())    
-    
-    def start_runtime_threads(self):
-        with self.runtime_lock:
-            if self.runtime_started:
-                return
-            
-            self.load_durable_jobs()
-            self.runtime_stop.clear()
-            
-            thread = threading.Thread(target=self.cron_scheduler_loop, name="cron-scheduler", daemon=True)
-            thread.start()
-            self.runtime_threads.append(thread)
-            self.runtime_started = True
-            
-    def stop_runtime_threads(self):
-        with  self.runtime_lock:
-            if not self.runtime_started:
-                return
-            
-            self.runtime_stop.set() 
-            for thread in self.runtime_threads:
-                thread.join(timeout=1)
-                
-            self.runtime_threads.clear()
-            self.runtime_started = False               
+            self.poll_due_jobs(datetime.now())
+        
+                        
         
                                
         
