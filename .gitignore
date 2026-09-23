@@ -8,3 +8,4 @@
 /.memory
 /.task
 /.temp
+.scheduled_tasks.json
