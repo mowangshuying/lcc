@@ -26,11 +26,7 @@ class CronScheduler:
         self.cron_lock = threading.RLock()
         
         self.runtime_stop = threading.Event()
-        self.runtime_threads: list[threading.Thread] = []
         self.runtime_started = False
-        self.runtime_lock = threading.Lock()
-        self.agent_lock = threading.Lock()
-        self.session_history:list = []
         
         self.scheduler_loop_thread: threading.Thread | None = None
     
