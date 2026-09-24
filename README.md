@@ -26,10 +26,11 @@ python loop.py    # 启动目录即沙箱根；q / exit 退出
 
 | 文件 | 职责 |
 | --- | --- |
-| `loop.py` | 主循环：用户输入 → 模型调用 → 工具执行 → 压缩/Hooks 接线（当前阶段 `s08`） |
+| `loop.py` | 主循环：用户输入 → 模型调用 → 工具执行 → 压缩/Hooks 接线（当前阶段 `s12`） |
 | `env.py` | `.env` 配置集中加载，供各模块共享 |
 | `tools_manager.py` | 工具注册与执行，内置子代理（`task`）独立执行循环 |
 | `background_tasks_manager.py` | 后台 bash 任务：异步启动、结果收割与 `<task_notification>` 注入 |
+| `cron_scheduler.py` | 定时任务调度：cron 表达式匹配、到期投递队列与 durable 落盘 |
 | `permission.py` | 分级权限审批，注册为 PreToolUse 第一顺位回调 |
 | `hooks.py` | UserPromptSubmit / PreToolUse / Stop 钩子总线 |
 | `compact_manager.py` | 会话压缩：主动 + 反应式，transcript 与工具结果落盘 |
@@ -45,6 +46,7 @@ python loop.py    # 启动目录即沙箱根；q / exit 退出
 | --- | --- |
 | [TOOLS_MANAGER.md](docs/TOOLS_MANAGER.md) | `tools_manager.py` |
 | [BACKGROUND_TASKS_MANAGER.md](docs/BACKGROUND_TASKS_MANAGER.md) | `background_tasks_manager.py` |
+| [CRON_SCHEDULER.md](docs/CRON_SCHEDULER.md) | `cron_scheduler.py` |
 | [PERMISSION.md](docs/PERMISSION.md) | `permission.py` |
 | [HOOKS.md](docs/HOOKS.md) | `hooks.py` |
 | [COMPACT_MANAGER.md](docs/COMPACT_MANAGER.md) | `compact_manager.py` |
