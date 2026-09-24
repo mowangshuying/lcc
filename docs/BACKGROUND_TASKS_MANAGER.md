@@ -2,7 +2,7 @@
 
 > 对应源码：`background_tasks_manager.py`（本仓库当前版本 185 行）
 > 状态：完整，**已接入主循环**（`tools_manager.py:223` 构造为 `ToolsManager` 的自持成员；
-> 后台路由在 `tools_manager.py:285` 的 `execute_tool`、结果注入在 `loop.py:77/115` 的
+> 后台路由在 `tools_manager.py:285` 的 `execute_tool`、结果注入在 `loop.py:75/115` 的
 > `inject_background_results`）
 > 引入提交：`7fd5f0e` feat(tools): run bash tasks in background via BackgroundTasksManager
 
@@ -17,14 +17,14 @@
 1. **异步启动**：模型在 `bash` 工具里带 `run_in_background: true`，`execute_tool` 不
    阻塞执行，而是登记一个后台任务、起一条守护线程去跑子进程，**立即**回一条
    "已启动"的占位 tool_result（§5）；
-2. **结果收割**：主循环每轮开头调 `collect_background_results()`（`loop.py:77`），把
+2. **结果收割**：主循环每轮开头调 `collect_background_results()`（`loop.py:75`），把
    此刻已完成的任务结果攒成 `<task_notification>` 文本、注入对话（§7）；
 3. **进程托管**：所有子进程（含前台 bash）登记在 `shell_processes` 集合，退出/信号时
    统一收割，不留孤儿（§8）。
 
 对外没有直接入口——模型侧只看到 `bash` 的一个可选参数（`tools_manager.py:26`）；
 调度全在 `ToolsManager.execute_tool`（TOOLS_MANAGER.md §5），收割全在 `Loop`
-（`loop.py:76-104`）。本类是被这两头驱动的引擎。
+（`loop.py:74-102`）。本类是被这两头驱动的引擎。
 
 ## 2. 数据结构（`__init__`，11-21）
 
@@ -201,29 +201,29 @@ execute_tool(block, handlers, allow_background=True)
 
 **谁触发收割、何时触发——这是本模块最该说清的一件事：**
 
-- 全库只有一处调用 `collect_background_results()`：`loop.py:77` 的
+- 全库只有一处调用 `collect_background_results()`：`loop.py:75` 的
   `inject_background_results`；
 - 而 `inject_background_results(messages)` 只在主循环 `while True` 的**每一轮顶部**被调用一次
-  （`loop.py:115`），且**在** `compactManager.prepare`（`loop.py:116`）**之前**；
+  （`loop.py:113`），且**在** `compactManager.prepare`（`loop.py:114`）**之前**；
 - **没有计时器、没有后台轮询线程**——"轮询"粒度 = 一个 agent 回合。`collect` 非阻塞，
-  有就返回、没有就返回空 list（78-79 空则直接 return）。
+  有就返回、没有就返回空 list（76-77 空则直接 return）。
 
-注入逻辑（`loop.py:81-102`）：把每条通知包成 `{"type":"text","text":…}` 块，若
-`messages[-1]` 是 user 角色就 `content.extend(blocks)`（内容已是 list，91-92）或把 str 内容升级成
-list 再拼（94-97）；否则新建一条 user 消息（99-102）。这与既有的 todo `<reminder>` 注入
-（`loop.py:188-190`）是同一套"往最后一批 user 内容里追加文本块"的手法。
+注入逻辑（`loop.py:79-100`）：把每条通知包成 `{"type":"text","text":…}` 块，若
+`messages[-1]` 是 user 角色就 `content.extend(blocks)`（内容已是 list，89-90）或把 str 内容升级成
+list 再拼（92-95）；否则新建一条 user 消息（97-100）。这与既有的 todo `<reminder>` 注入
+（`loop.py:186-188`）是同一套"往最后一批 user 内容里追加文本块"的手法。
 
 ```
-主循环单轮（loop.py:114-）
+主循环单轮（loop.py:112-）
 while True:
-    inject_background_results(messages)   ← 115  收割→合并进上一条 user / 新建 user
-    compactManager.prepare(...)           ← 116
-    response = messages.create(...)        ← 119  模型这一轮就能看见 <task_notification>
+    inject_background_results(messages)   ← 113  收割→合并进上一条 user / 新建 user
+    compactManager.prepare(...)           ← 114
+    response = messages.create(...)        ← 117  模型这一轮就能看见 <task_notification>
     ... execute_tool 可能又 start 新后台任务（285）
 ```
 
 **为什么是单实例（关键，曾踩坑）**：`Loop` **不再自建** `BackgroundTasksManager`，而是读
-`self.toolsManager.backgroundTasksManager`（`loop.py:77`）。若两处各 new 一个，任务登记进
+`self.toolsManager.backgroundTasksManager`（`loop.py:75`）。若两处各 new 一个，任务登记进
 `ToolsManager` 那份、`Loop` 从自己那份 `collect`——`ready` 永远为空，结果**静默丢失**。
 `ToolsManager.__init__` 里 `backgroundTasksManager = BackgroundTasksManager()`
 （`tools_manager.py:223`）是**全库唯一实例**。
@@ -237,10 +237,10 @@ while True:
 
 结果被注入的时机取决于"任务完成"与"下一次 `inject`"的相对时序：
 
-- 任务在第 N 轮的 `execute_tool` 里启动，若它在第 N+1 轮 `inject`（`loop.py:115`）之前跑完，
+- 任务在第 N 轮的 `execute_tool` 里启动，若它在第 N+1 轮 `inject`（`loop.py:113`）之前跑完，
   则第 N+1 轮模型就能看见；没跑完则顺延到再下一轮；
 - **终轮陷阱**：若模型在启动后台任务后直接给出最终答复（该轮 `tool_calls` 为空，
-  `loop.py:151-161` 直接 `return` 退出 `agent_loop`），这一轮**不再回到 while 顶部**，
+  `loop.py:149-159` 直接 `return` 退出 `agent_loop`），这一轮**不再回到 while 顶部**，
   期间完成的后台结果不会在本次用户请求内被注入——只能等**下一条用户消息**重新进入
   `agent_loop`、在其 while 顶部才被 `collect`。即"最后一次工具回合启动的任务，其结果
   往往要等到下一次用户交互才现身"。
@@ -273,7 +273,7 @@ while True:
 ## 12. 不变量（改代码前必读）
 
 1. **全库唯一实例、且只在主线程构造**：`tools_manager.py:223` 那一个。`Loop` 经
-   `toolsManager.backgroundTasksManager` 复用（`loop.py:77`），绝不另建（§10 双实例丢结果
+   `toolsManager.backgroundTasksManager` 复用（`loop.py:75`），绝不另建（§10 双实例丢结果
    教训）；
 2. **只有 bash 能后台**：`start` 硬拒非 bash（23-24），`should_run_background` 也硬卡
    `name == "bash"`（98）——给别的工具开后台是设计外的；

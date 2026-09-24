@@ -1,5 +1,5 @@
 import re
-from color import *
+from color import COLOR_CYAN, COLOR_DEFAULT, COLOR_RED, COLOR_YELLOW
 from env import Env
 
 class Permission:

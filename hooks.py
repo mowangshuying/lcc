@@ -1,7 +1,7 @@
-import color
 from env import Env
-from permission import *
-from color import *
+from permission import Permission
+from color import COLOR_DEFAULT, COLOR_GREEN
+
 
 class Hooks:
     def __init__(self):

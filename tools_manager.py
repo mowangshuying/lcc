@@ -12,7 +12,7 @@ from skill_manager import SkillManager
 from task_manager import TaskManager, Task
 from dataclasses import asdict, dataclass
 from background_tasks_manager import BackgroundTasksManager
-from cron_scheduler import *
+from cron_scheduler import CronScheduler
 from permission import Permission
 
 

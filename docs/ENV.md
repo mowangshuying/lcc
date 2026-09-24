@@ -25,7 +25,7 @@
 | `memoryDirPath` | `<cwd>/.lcc/memory` | `MemoryManager` 自建使用（memory_manager.py:126、133，MEMORY_MANAGER.md） |
 | `memoryIndexPath` | `memoryDirPath / MEMORY.md` | 记忆索引文件路径（env.py:20），由 `MemoryManager` 读写 |
 | `taskDirPath` | `<cwd>/.lcc/task` | 传给 `TaskManager` 构造（tools_manager.py:222），任务 JSON 落盘目录（TASK_MANAGER.md §3） |
-| `tempDirPath` | `<cwd>/.lcc/temp` | 临时/试验文件目录（系统提示要求一次性文件写入此处，loop.py:43-45；由 `Env.__init__` 自动 mkdir） |
+| `tempDirPath` | `<cwd>/.lcc/temp` | 临时/试验文件目录（系统提示要求一次性文件写入此处，loop.py:41-43；由 `Env.__init__` 自动 mkdir） |
 
 `workDir` 与 `workDirPath` 是同一目录的两种形态（str / Path）：
 `workDir` 服务系统提示词与 hook 打印，`workDirPath` 服务围栏与
@@ -46,7 +46,7 @@ if os.getenv("ANTHROPIC_BASE_URL"):
    （`x-api-key`，即 SDK 稍后从环境变量自取的 `ANTHROPIC_API_KEY`），
    避免 bearer-token 与 api-key 同时发出被网关拒绝。
    **顺序依赖**：必须先建 `Env()` 再建 `Anthropic()` 客户端，SDK 是在
-    客户端构造时才读取环境变量的（loop.py:16→18、tools_manager.py:247→254
+    客户端构造时才读取环境变量的（loop.py:14→16、tools_manager.py:247→254
    都恰好满足，改动构造顺序会静默失效）。
 
 ## 4. 不是单例：一次启动会 new 八个
@@ -54,7 +54,7 @@ if os.getenv("ANTHROPIC_BASE_URL"):
 无单例模式，每个持有方自己 `Env()`：
 
 ```
-Loop.env (loop.py:16)
+Loop.env (loop.py:14)
 ├─ Hooks.env (hooks.py:8)    # 全进程唯一 Hooks 实例（HOOKS.md §6）
 │   └─ 其 Permission.env (permission.py:10)
 ├─ MemoryManager.env (memory_manager.py:32)
@@ -64,7 +64,7 @@ Loop.env (loop.py:16)
     └─ 其 CronScheduler.env (cron_scheduler.py:22)
 ```
 
-（CompactManager 例外——目录由 loop.py:24-29 注入，不持有 Env。）
+（CompactManager 例外——目录由 loop.py:22-27 注入，不持有 Env。）
 
 后果：启动时 `load_dotenv` 执行 8 次（幂等，只有微小开销）；
 更重要的语义是**每个实例都是构造时刻的快照**——运行期改
