@@ -14,12 +14,12 @@ from dataclasses import asdict, dataclass
 from background_tasks_manager import BackgroundTasksManager
 from cron_scheduler import CronScheduler
 from permission import Permission
-
+from tool_names import BASH, READ_FILE, WRITE_FILE, EDIT_FILE, GLOB, TODO_WRITE, TASK, LOAD_SKILL, COMPACT, CREATE_TASK, UPDATE_TASK, LIST_TASKS, GET_TASK, CLAIM_TASK, COMPLETE_TASK, SCHEDULE_CRON, LIST_CRONS, CANCEL_CRON
 
 
 class ToolsManager:
     BASH = {
-        "name": "bash",
+        "name": BASH,
         "description": "Run a shell command.",
         "input_schema": {
             "type": "object",
@@ -32,7 +32,7 @@ class ToolsManager:
     }
 
     READ_FILE = {
-        "name": "read_file",
+        "name": READ_FILE,
         "description": "Read file contents",
         "input_schema": {
             "type": "object",
@@ -42,7 +42,7 @@ class ToolsManager:
     }
 
     WRITE_FILE = {
-        "name": "write_file",
+        "name": WRITE_FILE,
         "description": "Write content to a file",
         "input_schema": {
             "type": "object",
@@ -52,7 +52,7 @@ class ToolsManager:
     }
 
     EDIT_FILE = {
-        "name": "edit_file",
+        "name": EDIT_FILE,
         "description": "Replace exact text in a file once.",
         "input_schema": {
             "type": "object",
@@ -66,7 +66,7 @@ class ToolsManager:
     }
 
     GLOB = {
-        "name": "glob",
+        "name": GLOB,
         "description": "Find files matching a glob pattern; ** matches recursively.",
         "input_schema": {
             "type": "object",
@@ -76,7 +76,7 @@ class ToolsManager:
     }
 
     TODO_WRITE = {
-        "name": "todo_write",
+        "name": TODO_WRITE,
         "description": "Create and manage a task list for your current coding session.",
         "input_schema": {
             "type": "object",
@@ -104,7 +104,7 @@ class ToolsManager:
     }
 
     TASK = {
-        "name": "task",
+        "name": TASK,
         "description": "Run a subagent with fresh conversation context and return its final text.",
         "input_schema": {
             "type": "object",
@@ -114,7 +114,7 @@ class ToolsManager:
     }
     
     LOAD_SKILL = {
-        "name": "load_skill",
+        "name": LOAD_SKILL,
         "description": "Load the full SKILL.md content by skill name.",
         "input_schema": {
             "type": "object",
@@ -128,7 +128,7 @@ class ToolsManager:
     }
     
     COMPACT = {
-        "name" : "compact",
+        "name" : COMPACT,
         "description" : "Summarize earlier conversation to free context space",
         "input_schema" : {
             "type" : "object",
@@ -141,7 +141,7 @@ class ToolsManager:
 
     #### task_manager
     CREATE_TASK = {
-        "name": "create_task",
+        "name": CREATE_TASK,
         "description": "Create a task and return its runtime-generated ID.",
         "input_schema": {
             "type": "object",
@@ -155,7 +155,7 @@ class ToolsManager:
     }
 
     UPDATE_TASK = {
-        "name": "update_task",
+        "name": UPDATE_TASK,
         "description": "Add dependencies using IDs returned by create_task.",
         "input_schema": {
             "type": "object",
@@ -173,13 +173,13 @@ class ToolsManager:
     }
 
     LIST_TASKS = {
-        "name": "list_tasks",
+        "name": LIST_TASKS,
         "description": "List tasks with status, owner, and dependencies.",
         "input_schema": {"type": "object", "properties": {}},
     }
 
     GET_TASK = {
-        "name": "get_task",
+        "name": GET_TASK,
         "description": "Get a task by ID.",
         "input_schema": {
             "type": "object",
@@ -189,7 +189,7 @@ class ToolsManager:
     }
 
     CLAIM_TASK = {
-        "name": "claim_task",
+        "name": CLAIM_TASK,
         "description": "Claim a pending task whose dependencies are complete.",
         "input_schema": {
             "type": "object",
@@ -199,7 +199,7 @@ class ToolsManager:
     }
 
     COMPLETE_TASK = {
-        "name": "complete_task",
+        "name": COMPLETE_TASK,
         "description": "Complete the task claimed by this agent.",
         "input_schema": {
             "type": "object",
@@ -209,7 +209,7 @@ class ToolsManager:
     }
     
     SCHEDULE_CRON = {
-        "name": "schedule_cron",
+        "name": SCHEDULE_CRON,
         "description": "Schedule a prompt with a 5-field cron expression.",
         "input_schema": {
                 "type": "object",
@@ -222,7 +222,7 @@ class ToolsManager:
                 "required": ["cron", "prompt"]}}
     
     LIST_CRONS = {
-        "name": "list_crons", 
+        "name": LIST_CRONS, 
         "description": "List scheduled cron jobs.",
         "input_schema": {
             "type": "object", 
@@ -232,7 +232,7 @@ class ToolsManager:
 
     
     CANCEL_CRON = {
-        "name": "cancel_cron", 
+        "name": CANCEL_CRON, 
         "description": "Cancel a cron job by ID.",
         "input_schema": {
                 "type": "object",
@@ -278,23 +278,23 @@ class ToolsManager:
             self.cancel_cron_info(),
         ]
         self.toolsHandlers = {
-            "bash": self.run_bash,
-            "read_file": self.run_read,
-            "write_file": self.run_write,
-            "edit_file": self.run_edit,
-            "glob": self.run_glob,
-            "todo_write": self.run_todo_write,
-            "task": self.run_subagent,
-            "load_skill": self.run_load_skill,
-            "create_task": self.run_create_task,
-            "update_task": self.run_update_task,
-            "list_tasks":self.run_list_tasks,
-            "get_task": self.run_get_task,
-            "claim_task": self.run_claim_task,
-            "complete_task": self.run_complete_task,
-            "schedule_cron": self.run_schedule_cron,
-            "list_crons": self.run_list_crons,
-            "cancel_cron": self.run_cancel_cron,
+            BASH: self.run_bash,
+            READ_FILE: self.run_read,
+            WRITE_FILE: self.run_write,
+            EDIT_FILE: self.run_edit,
+            GLOB: self.run_glob,
+            TODO_WRITE: self.run_todo_write,
+            TASK: self.run_subagent,
+            LOAD_SKILL: self.run_load_skill,
+            CREATE_TASK: self.run_create_task,
+            UPDATE_TASK: self.run_update_task,
+            LIST_TASKS:self.run_list_tasks,
+            GET_TASK: self.run_get_task,
+            CLAIM_TASK: self.run_claim_task,
+            COMPLETE_TASK: self.run_complete_task,
+            SCHEDULE_CRON: self.run_schedule_cron,
+            LIST_CRONS: self.run_list_crons,
+            CANCEL_CRON: self.run_cancel_cron,
         }
         self.subTools = [
             self.sub_bash_info(),
@@ -304,11 +304,11 @@ class ToolsManager:
             self.glob_info(),
         ]
         self.subToolsHandlers = {
-            "bash": self.run_bash,
-            "read_file": self.run_read,
-            "write_file": self.run_write,
-            "edit_file": self.run_edit,
-            "glob": self.run_glob,
+            BASH: self.run_bash,
+            READ_FILE: self.run_read,
+            WRITE_FILE: self.run_write,
+            EDIT_FILE: self.run_edit,
+            GLOB: self.run_glob,
         }
 
     def safe_path(self, p: str) -> Path:

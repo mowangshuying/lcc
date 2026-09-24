@@ -38,6 +38,7 @@ python loop.py    # 启动目录即沙箱根；q / exit 退出
 | `memory_manager.py` | 长期记忆：检索注入、会话提取与合并 |
 | `task_manager.py` | 持久化任务管理：依赖图、状态机与任务工具接线 |
 | `color.py` | 终端颜色常量 |
+| `tool_names.py` | 工具名常量（零依赖叶子），跨模块名字比较的单一事实源 |
 | `skills/` | 技能目录（含 `greeting` 示例） |
 
 ## 文档索引

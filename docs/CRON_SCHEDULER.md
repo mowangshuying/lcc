@@ -151,7 +151,7 @@ ack 内部（:292-333）：
   `pending_delivery=True` → 重启回灌队列 → 同一 prompt 再执行一次。这是
   at-least-once 的既定代价，无幂等去重；
 - 交付粒度是**回合边界**：调度线程照常入队，但 `run_delivery` 只在 `run()` 的
-  `wait_for_cli_event` 返回 `"cron"` 之后才被调（loop.py:254）——模型正在跑长回合
+  `wait_for_cli_event` 返回 `"cron"` 之后才被调（loop.py:256）——模型正在跑长回合
   时任务在队列里等待。
 
 ## 8. 接线现状（必读）
@@ -173,22 +173,22 @@ ack 内部（:292-333）：
 
 **主循环**（loop.py；`run()` 只管事件循环与"怎么投递"，"何时 ack/restore"收口在
 `run_delivery`。cron 句柄经 `Loop.__init__` 的单跳别名 `self.cron =
-self.toolsManager.cronScheduler`（loop.py:28）取得，此后 loop 不再二跳 toolsManager）：
+self.toolsManager.cronScheduler`（loop.py:29）取得，此后 loop 不再二跳 toolsManager）：
 
 ```
-loop.py:237  self.cron.start_runtime_threads()        # 启动时：load 落盘任务 + 起轮询线程
-loop.py:208-209  self.cron.has_cron_queue() → 返回 ("cron", None)   # 事件等待：cron 优先于用户输入
-loop.py:254  self.cron.run_delivery(deliver)          # 投递唯一入口；deliver 闭包 :249-253：
-             #   :251  history.append({"role": "user", "content": f"[Scheduled] {job.prompt}"})
-             #   :252  print [cron] delivered {id}
-             #   :253  _run_turn(history, "\n".join(job.prompt))  # payload 是无前缀原文
+loop.py:238  self.cron.start_runtime_threads()        # 启动时：load 落盘任务 + 起轮询线程
+loop.py:209-210  self.cron.has_cron_queue() → 返回 ("cron", None)   # 事件等待：cron 优先于用户输入
+loop.py:256  self.cron.run_delivery(deliver)          # 投递唯一入口；deliver 闭包 :250-254：
+             #   :252  history.append({"role": "user", "content": f"[Scheduled] {job.prompt}"})
+             #   :253  print [cron] delivered {id}
+             #   :254  _run_turn(history, "\n".join(job.prompt))  # payload 是无前缀原文
              #   协议内部：consume/ack/restore 全在 cron_scheduler.py:385/393/391，loop 不可见
-loop.py:226-232  _run_turn → agent_loop(history, payload)   # user 分支（:247）与 cron 分支共用；
+loop.py:227-233  _run_turn → agent_loop(history, payload)   # user 分支（:248）与 cron 分支共用；
              #   payload 仅作 active_request（压缩摘要用），不重复入 history
-loop.py:255  self.cron.stop_runtime_threads()         # 退出时
+loop.py:256  self.cron.stop_runtime_threads()         # 退出时
 ```
 
-`wait_for_cli_event` 的优先级细节（loop.py:205-223）：每轮先查 cron 队列，非空立即返回
+`wait_for_cli_event` 的优先级细节（loop.py:206-224）：每轮先查 cron 队列，非空立即返回
 `"cron"`（**不打印 `s12>>` 提示符**、不等 stdin）；用户输入此刻还躺在
 `stdinQueue` 里，下一个事件循环再取。即 cron 可以插队在先输入的用户消息之前。
 
@@ -239,7 +239,7 @@ loop.py:255  self.cron.stop_runtime_threads()         # 退出时
 |---|---|
 | `env.py` | 自建 `Env()` 实例，仅消费 `durablePath`（env.py:24，`<cwd>/.lcc/scheduled_tasks.json`；`.lcc` 目录由 Env 构造时 mkdir） |
 | `tools_manager.py` | 持有唯一实例（:258）；`schedule_cron`/`list_crons`/`cancel_cron` 三个主 agent 工具的宿主 |
-| `loop.py` | 生命周期（`self.cron.start/stop_runtime_threads`，loop.py:237/:255）与投递回调（`deliver` 闭包）的提供方；consume/ack/restore 时序由本模块 `run_delivery` 自行执行；cron 事件与用户输入共用同一事件循环 |
+| `loop.py` | 生命周期（`self.cron.start/stop_runtime_threads`，loop.py:238/:256）与投递回调（`deliver` 闭包）的提供方；consume/ack/restore 时序由本模块 `run_delivery` 自行执行；cron 事件与用户输入共用同一事件循环 |
 | `background_tasks_manager.py` | 概念对称但零耦合：那边是"发任务收结果"，这里是"到点发 prompt" |
 | `hooks.py` | **不经过任何 hook**：cron 注入的 `[Scheduled]` user 消息不触发 `UserPromptSubmit`；但 cron 工具调用照常走唯一事件总线的 `PreToolUse`/`PostToolUse`（HOOKS.md §6） |
 | `compact_manager.py` | 间接：cron 消息进入 history 后受常规压缩管辖 |

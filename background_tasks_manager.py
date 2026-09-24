@@ -5,7 +5,7 @@ import signal
 import os
 import time
 import atexit
-
+from tool_names import BASH
 
 class BackgroundTasksManager:
     def __init__(self):
@@ -20,7 +20,7 @@ class BackgroundTasksManager:
         
         self.register_exit_handlers()
     def start(self, block) -> str:
-        if block.name != "bash":
+        if block.name != BASH:
             raise Exception("Only bash blocks can be started in background")
         
         command = block.input.get("command")
@@ -95,7 +95,7 @@ class BackgroundTasksManager:
         return notifications
     
     def should_run_background(self, tool_name: str, tool_input: dict) -> bool:
-        return (tool_name == "bash") and (tool_input.get("run_in_background") is True)
+        return (tool_name == BASH) and (tool_input.get("run_in_background") is True)
     
     def collect_background_results(self) -> list[str]:
         return self.collect()

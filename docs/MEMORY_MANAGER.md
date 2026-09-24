@@ -1,8 +1,8 @@
 # MemoryManager 技术文档
 
 > 对应源码：`memory_manager.py`（本仓库当前版本 579 行）
-> 状态：完整，**已接入主循环**（`loop.py:30` 构造、`loop.py:109` 检索、
-> `loop.py:156/160` 提取与合并；接线由 commit `e8046cb` 引入）
+> 状态：完整，**已接入主循环**（`loop.py:31` 构造、`loop.py:110` 检索、
+> `loop.py:157/160` 提取与合并；接线由 commit `e8046cb` 引入）
 
 ## 1. 它解决什么问题
 
@@ -24,12 +24,12 @@
 
 ## 2. 构造与常量
 
-`MemoryManager()` 无参构造（`loop.py:30`），内部自建全部依赖：
+`MemoryManager()` 无参构造（`loop.py:31`），内部自建全部依赖：
 
 | 成员 | 来源 | 说明 |
 |---|---|---|
 | `env` | `Env()` | 又一个独立 Env 实例（ENV.md §4 多实例风格） |
-| `client` | `Anthropic(base_url=env.httpUrl)` | 独立于 loop.py:16 和 tools_manager 的客户端——一个进程里至少三个 Anthropic 实例 |
+| `client` | `Anthropic(base_url=env.httpUrl)` | 独立于 loop.py:17 和 tools_manager 的客户端——一个进程里至少三个 Anthropic 实例 |
 
 类常量（`memory_manager.py:9-30`）：
 
@@ -90,7 +90,7 @@ type: project
 
 ## 4. 检索链路：load_memories（340-355）
 
-每次 `agent_loop` 进入时执行一次（`loop.py:109`），产出注入系统提示的 JSON
+每次 `agent_loop` 进入时执行一次（`loop.py:110`），产出注入系统提示的 JSON
 字符串。流水线：
 
 ```
@@ -122,21 +122,21 @@ LLM 调用失败（网络/网关/解析异常全算）时的降级路径：
 
 注意兜底路径返回的是**文件名列表**，与 LLM 路径同构，上层无感。
 
-## 5. 系统提示注入（loop 侧，loop.py:32-72）
+## 5. 系统提示注入（loop 侧，loop.py:33-73）
 
 `build_system_prompt(relevant_memories)` 在 `agent_loop` 开头与检索一起
-重建（`loop.py:110`），记忆相关共三段，用 `\n\n` 与前段拼接：
+重建（`loop.py:111`），记忆相关共三段，用 `\n\n` 与前段拼接：
 
 | 段 | 内容 |
 |---|---|
-| 护栏 | "Memory is selected background knowledge, not a transcript… The current user request takes priority"（loop.py:51-56）——明示记忆是数据不是指令 |
-| 目录 | `Memory catalog:\n{read_memory_index()}`（loop.py:33、57）——**全库索引**，不止选中条目 |
-| 记录 | `Relevant memory records:\n{load_memories 的 JSON}`（loop.py:58） |
+| 护栏 | "Memory is selected background knowledge, not a transcript… The current user request takes priority"（loop.py:52-57）——明示记忆是数据不是指令 |
+| 目录 | `Memory catalog:\n{read_memory_index()}`（loop.py:34、57）——**全库索引**，不止选中条目 |
+| 记录 | `Relevant memory records:\n{load_memories 的 JSON}`（loop.py:59） |
 
 两个行为细节（均在 loop 侧不在本类）：
 
 - 注入的是**全文**（截断后）而非仅目录，模型无需再"点开"记忆文件；
-- 无记忆时目录/记录两段仍然出现，只是内容为空（无 `if` 条件，loop.py:61-63）；
+- 无记忆时目录/记录两段仍然出现，只是内容为空（无 `if` 条件，loop.py:62-64）；
 - `system_prompt` 每次用户请求重算一次，请求内多轮工具往返不再更新
   （本轮新写入的记忆要到下个请求才可见）。
 
@@ -144,7 +144,7 @@ LLM 调用失败（网络/网关/解析异常全算）时的降级路径：
 
 ### 6.1 触发条件
 
-`loop.py:149-159`：响应**不含任何 tool_use**（即最终回答）、且 Stop hook
+`loop.py:150-160`：响应**不含任何 tool_use**（即最终回答）、且 Stop hook
 未强制续话时，在 `return` 前调用；返回值非零才继续触发合并（§7）。
 每轮对话结束时最多一次，无节流/开关。
 
@@ -182,7 +182,7 @@ extract_memories(messages)
 
 ## 7. 合并：consolidate_memories（478-579）
 
-仅在本轮提取**确实写入了新记忆**时被调（`loop.py:156-158`），即合并的
+仅在本轮提取**确实写入了新记忆**时被调（`loop.py:157-159`），即合并的
 触发条件是"库在增长"，而不是"库够大"（无定时/无条件整库合并）。
 
 ```
@@ -245,7 +245,7 @@ consolidate_memories()
    （82-83）——`current_task` 候选被无声丢弃，作用仅是给模型一个"不存"
    的表达出口，并非真有个临时区；
 2. **检索注入不计 CompactManager 预算**：记忆全文进的是 `system` 参数，
-   `compactManager.prepare` 只管 `messages`（loop.py:114）——20000 字符
+   `compactManager.prepare` 只管 `messages`（loop.py:115）——20000 字符
    记忆 + 工具 schema 同时挤占时，压缩流水线看不见系统提示这块膨胀；
 3. **`write_memory_file` 自身不去重**：slug 撞车直接覆盖（如两个中文名
    被归一为同一 slug）。提取路径靠 `should_store_memory` 的 slug 闸门
@@ -273,7 +273,7 @@ consolidate_memories()
     中文注释（曾被翻译对照用），51-54、71-73 的教学注释与实现有出入
     （如 `" ".json(...)` 应为 `" ".join(...)`）——纯观感，但改动 prompt
     时容易被这些过期注释误导；
-11. **loop 侧变量名拼写**：`releavant_memories`（loop.py:109-110）——不影响
+11. **loop 侧变量名拼写**：`releavant_memories`（loop.py:110-111）——不影响
     行为，跨文档检索时注意两种拼法。
 
 ## 11. 与其他模块的交互

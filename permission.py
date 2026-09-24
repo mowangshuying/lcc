@@ -1,7 +1,7 @@
 import re
 from color import COLOR_CYAN, COLOR_DEFAULT, COLOR_RED, COLOR_YELLOW
 from env import Env
-
+from tool_names import BASH, EDIT_FILE, READ_FILE, WRITE_FILE
 class Permission:
     ### 硬编码禁止列表 总是禁止；单一事实源：Permission 链式检查与 ToolsManager.run_bash 共用本清单
     DENY_LIST = ["rm -rf /", "sudo", "shutdown", "reboot", "mkfs", "dd if=", "> /dev/"]
@@ -20,14 +20,14 @@ class Permission:
         
         self.PERMISSION_RULES = [
             {
-                "tools": ["read_file", "write_file", "edit_file"],
+                "tools": [READ_FILE, WRITE_FILE, EDIT_FILE],
                 "check": lambda args: not (self.env.workDirPath / args.get("path", ""))
                 .resolve()
                 .is_relative_to(self.env.workDirPath),
                 "message": "Writing outside workspace",
             },
             {
-                "tools": ["bash"],
+                "tools": [BASH],
                 "check": lambda args: self.contains_destructive_command(args.get("command", ""))
                 or any(kw in args.get("command", "") for kw in ["rm ", "> /etc/", "chmod 777"]),
                 "message": "Potentially destructive command",
@@ -65,7 +65,7 @@ class Permission:
 
 
     def check_permission(self, block) -> str | None:
-        if block.name == "bash":
+        if block.name == BASH:
             reason = self.check_deny_list(block.input.get("command", ""))
             if reason:
                 print(f"{COLOR_RED}{reason}{COLOR_DEFAULT}")

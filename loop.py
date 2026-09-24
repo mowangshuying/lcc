@@ -5,6 +5,7 @@ from hooks import Hooks
 from tools_manager import ToolsManager
 from compact_manager import CompactManager
 from memory_manager import MemoryManager
+from tool_names import COMPACT, TODO_WRITE
 import queue
 import sys
 import threading
@@ -162,7 +163,7 @@ class Loop:
             used_todo = False
             compact_requested = False
             for block in tool_calls:
-                if block.name == "compact":
+                if block.name == COMPACT:
                     compact_requested = True
                 else:
                     output = self.toolsManager.execute_tool(block, self.toolsManager.toolsHandlers)
@@ -174,7 +175,7 @@ class Loop:
                         }
                     )
 
-                if block.name == "todo_write":
+                if block.name == TODO_WRITE:
                     used_todo = True
 
             if not used_todo:

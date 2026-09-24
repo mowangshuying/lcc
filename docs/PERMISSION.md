@@ -92,11 +92,11 @@ check_permission(block)
 - 消费方 `ToolsManager.execute_tool`（tools_manager.py:322-324）：
   PreToolUse 返回非空即 `return str(blocked)`——handler 不执行，拒绝文本
   作为 tool_result 回填给模型，**且 PostToolUse 整条链都不触发**；
-- 两个入口共用同一条拦截链：主循环 `loop.py:168` 与子代理
+- 两个入口共用同一条拦截链：主循环 `loop.py:169` 与子代理
   `tools_manager.py:598` 都调 `execute_tool`，走同一个 `self.hooks` →
   同一个 `Permission`，**子代理不享受任何豁免**；
-- 实例化拓扑：全仓库 `Hooks()` 只在 `loop.py:15` 被 new **一次**，经
-  `ToolsManager(self.hooks)`（loop.py:20）注入后，主循环与工具执行共用
+- 实例化拓扑：全仓库 `Hooks()` 只在 `loop.py:16` 被 new **一次**，经
+  `ToolsManager(self.hooks)`（loop.py:21）注入后，主循环与工具执行共用
   同一条事件总线、同一个 `Permission`——历史上 ToolsManager 曾自建第二份
   `Hooks`（各带独立注册表）导致"loop 侧 permission 回调永不执行"的脑裂，
   现已消除（见 HOOKS.md §6）。

@@ -1,7 +1,7 @@
 from env import Env
 from permission import Permission
 from color import COLOR_DEFAULT, COLOR_GREEN
-
+from tool_names import BASH, EDIT_FILE, GLOB, READ_FILE, TASK, TODO_WRITE, WRITE_FILE
 
 class Hooks:
     def __init__(self):
@@ -44,19 +44,19 @@ class Hooks:
     def log_after_use_tool_hook(self, block, output):
         # ### use tool info
         info = ""
-        if block.name == "bash":
+        if block.name == BASH:
             info = f"command: {block.input['command']}"
-        elif block.name == "read_file":
+        elif block.name == READ_FILE:
             info = f"path: {block.input['path']}"
-        elif block.name == "write_file":
+        elif block.name == WRITE_FILE:
             info = f"path: {block.input['path']}"
-        elif block.name == "edit_file":
+        elif block.name == EDIT_FILE:
             info = f"path: {block.input['path']}"
-        elif block.name == "glob":
+        elif block.name == GLOB:
             info = f"pattern: {block.input['pattern']}"
-        elif block.name == "todo_write":
+        elif block.name == TODO_WRITE:
             info = f"update task list"
-        elif block.name == "task":
+        elif block.name == TASK:
             info = f"task: {block.input.get('prompt', '')}"
 
         print(
