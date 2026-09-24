@@ -1,6 +1,6 @@
 # Permission 技术文档
 
-> 对应源码：`permission.py`（本仓库当前版本 79 行）
+> 对应源码：`permission.py`（本仓库当前版本 80 行）
 > 状态：引擎完整，**已接入主循环**（`hooks.py` 实例化并注册为 PreToolUse
 > 第一顺位回调，接线细节见 §6）
 
@@ -25,10 +25,13 @@
 
 `Permission()` 无参构造，实例化时一次性构建全部规则，
 **无外部配置文件、无热重载**（规则是实例属性，改规则 = 改代码）。
+例外：`DENY_LIST` 是**类级常量**（`permission.py:7`），不随实例重建，
+且为全仓硬禁命令的**单一事实源**——`Permission.check_deny_list` 与
+`ToolsManager.run_bash` 共用同一份（见 §7）。
 
 | 常量 | 值 | 匹配方式 |
 |---|---|---|
-| `DENY_LIST` | `rm -rf /`、`sudo`、`shutdown`、`reboot`、`mkfs`、`dd if=`、`> /dev/sda` | **区分大小写**的纯子串包含 |
+| `DENY_LIST` | `rm -rf /`、`sudo`、`shutdown`、`reboot`、`mkfs`、`dd if=`、`> /dev/` | **区分大小写**的纯子串包含 |
 | `DESTRUCTIVE_COMMAND_WORD` | 见 §3 | 正则，忽略大小写 |
 | `PERMISSION_RULES` | 2 条（见 §4） | lambda 谓词 |
 
@@ -103,11 +106,17 @@ check_permission(block)
    `run_read/run_write/run_edit` 内部的 `safe_path`（tools_manager.py:381）
    仍会 `raise ValueError`，被 handler 的 `except Exception` 转成
    `Error:...` 文本。想把工作区真正放开，两处都得改；
-2. **deny list 优先于人工放行**：`sudo` 在列表里，任何含 `sudo` 子串的
-   bash 命令直接拒，根本不弹确认；
-3. **默认拒绝**：`ask_user` 只认 `y`/`yes`，空回车、误触、其他输入一律按
-   deny 处理；
-4. **返回值语义**：`None` = 放行、非空 `str` = 拦截。`execute_tool` 用
+ 2. **`DENY_LIST` 单一事实源，两道校验共享同一份**：全仓只有
+    `permission.py:7` 这一处定义；`Permission` 链式检查（`check_deny_list`，
+    permission.py:39）与 `ToolsManager.run_bash`（直接 import `Permission`
+    后遍历 `Permission.DENY_LIST`）是同一清单的两个消费方，内容永不漂移。
+    改硬禁命令只需改这一处。`run_bash` 这道闸**不经过** PreToolUse 链，
+    即使 permission hook 被绕过/失效，它仍独立拦截同一批命令（防御纵深）；
+ 3. **deny list 优先于人工放行**：`sudo` 在列表里，任何含 `sudo` 子串的
+    bash 命令直接拒，根本不弹确认；
+ 4. **默认拒绝**：`ask_user` 只认 `y`/`yes`，空回车、误触、其他输入一律按
+    deny 处理；
+ 5. **返回值语义**：`None` = 放行、非空 `str` = 拦截。`execute_tool` 用
    truthiness 判断（`if blocked:`），回调实现若返回 `""` 会被当成放行，
    还会短路掉后续 PreToolUse 回调——永远别返回空字符串。
 
@@ -132,7 +141,7 @@ check_permission(block)
 | 模块 | 关系 |
 |---|---|
 | `hooks.py` | 实例化者 + PreToolUse 注册方（第一顺位，见 §6） |
-| `tools_manager.py` | 拒绝结果的消费方（`execute_tool`）；`safe_path` 是文件工具的硬防线（§7.1） |
+| `tools_manager.py` | 拒绝结果的消费方（`execute_tool`）；`run_bash` 绕过 hook 链直接遍历 `Permission.DENY_LIST`（§7.2）；`safe_path` 是文件工具的硬防线（§7.1） |
 | `env.py` | 围栏基准取 `Env().workDirPath`（= 进程 `Path.cwd()`，不是仓库位置） |
 | `loop.py` | 主循环与子代理共用同一拦截链（§6） |
 | `color.py` | 询问/拒绝的终端着色 |

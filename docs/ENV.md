@@ -56,11 +56,11 @@ if os.getenv("ANTHROPIC_BASE_URL"):
 ```
 Loop.env (loop.py:16)
 ├─ Loop 的 Hooks.env (hooks.py:8)
-│   └─ 其 Permission.env (permission.py:7)
+│   └─ 其 Permission.env (permission.py:10)
 ├─ Loop 的 MemoryManager.env (memory_manager.py:32)
 └─ ToolsManager.env (tools_manager.py:213)
     ├─ 其 Hooks.env (hooks.py:8)
-    │   └─ 其 Permission.env (permission.py:7)
+    │   └─ 其 Permission.env (permission.py:10)
     ├─ 其 TaskManager.env (task_manager.py:26)
     └─ 其 BackgroundTasksManager.env (background_tasks_manager.py:12)
 ```

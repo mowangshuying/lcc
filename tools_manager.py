@@ -13,6 +13,7 @@ from task_manager import TaskManager, Task
 from dataclasses import asdict, dataclass
 from background_tasks_manager import BackgroundTasksManager
 from cron_scheduler import *
+from permission import Permission
 
 
 
@@ -414,10 +415,8 @@ class ToolsManager:
 
     ### bash
     def run_bash(self, command: str) -> str:
-        dangerous = ["rm -rf /", "sudo", "shutdown", "reboot", "> /dev/"]
-
         found = False
-        for d in dangerous:
+        for d in Permission.DENY_LIST:
             if d in command:
                 found = True
                 break

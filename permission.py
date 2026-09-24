@@ -3,10 +3,11 @@ from color import *
 from env import Env
 
 class Permission:
+    ### 硬编码禁止列表 总是禁止；单一事实源：Permission 链式检查与 ToolsManager.run_bash 共用本清单
+    DENY_LIST = ["rm -rf /", "sudo", "shutdown", "reboot", "mkfs", "dd if=", "> /dev/"]
+
     def __init__(self):
         self.env = Env()
-        ### 硬编码禁止列表 总是禁止
-        self.DENY_LIST = ["rm -rf /", "sudo", "shutdown", "reboot", "mkfs", "dd if=", "> /dev/sda"]
         
         ### (?i) 忽略大小写
         ### (?:^|[;&|()\n{}"'`]) 匹配字符串的开头、分隔符号/花括号或引号（覆盖 powershell -Command "..." 与 & {...} 嵌套写法）

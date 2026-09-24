@@ -1,6 +1,6 @@
 # ToolsManager 技术文档
 
-> 对应源码：`tools_manager.py`（本仓库当前版本 610 行）
+> 对应源码：`tools_manager.py`（本仓库当前版本 684 行）
 > 状态：完整，**已接入主循环**（`loop.py:22` 构造、`loop.py:170` 执行；
 > 子代理执行循环内置于本类 `run_subagent`；bash 后台任务委托 `backgroundTasksManager`，
 > 详见 BACKGROUND_TASKS_MANAGER.md）
@@ -228,14 +228,16 @@ execute_tool(block, handlers, allow_background=True)
 
 ## 6. Handler 明细
 
-### 6.1 run_bash（367-379）
+### 6.1 run_bash（417-427）
 
-- 自带 5 词危险子串黑名单：`rm -rf /`、`sudo`、`shutdown`、`reboot`、
-  `> /dev/`——与 Permission 的 `DENY_LIST` **是两套独立清单**，内容有出入
-  （此处 `> /dev/` 前缀更宽，但缺 `mkfs`/`dd if=`），命中时返回
-  `Error: Dangerous command blocked`（不弹确认），详见 PERMISSION.md §7；
+- 危险命令检查直接遍历 `Permission.DENY_LIST`（`tools_manager.py:16` 显式
+  import；单一事实源定义在 `permission.py:7`：`rm -rf /`、`sudo`、`shutdown`、
+  `reboot`、`mkfs`、`dd if=`、`> /dev/`），命中返回
+  `Error: Dangerous command blocked`（不弹确认）。该检查**不经过** PreToolUse
+  hook 链，与 Permission 链式检查共享同一份清单，构成防御纵深且内容零漂移，
+  详见 PERMISSION.md §7.2；
 - 危险检查之后**委托** `backgroundTasksManager.run_bash_process(command)` +
-  `format_bash_result(...)`（378-379）——与后台任务是**同一条执行路径**
+  `format_bash_result(...)`（:426-427）——与后台任务是**同一条执行路径**
   （BACKGROUND_TASKS_MANAGER.md §6）：`subprocess.Popen(shell=True,
   cwd=env.workDirPath, start_new_session=True, capture…)` +
   `communicate(timeout=120)`，阻塞最长 120 秒，无流式输出；
