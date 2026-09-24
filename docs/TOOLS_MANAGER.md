@@ -9,7 +9,7 @@
 
 把"工具"这件事的四块拼在一起：
 
-1. **schema**（模型看到什么）：15 个工具的 JSON Schema 定义，详解见 §2；
+1. **schema**（模型看到什么）：18 个工具的 JSON Schema 定义，详解见 §2；
 2. **handler**（怎么执行）：`toolsHandlers` / `subToolsHandlers` 两张路由表；
 3. **执行闸门**：`execute_tool` 统一走 PreToolUse → handler → PostToolUse；
 4. **子代理**：`run_subagent` 自带一个缩小版的 agent 循环。
@@ -23,7 +23,7 @@
 
 ### 2.1 schema 的结构与消费链路
 
-每个工具是一个固定三键的 dict（15 个工具全部同一格式）：
+每个工具是一个固定三键的 dict（18 个工具全部同一格式）：
 
 ```python
 {
@@ -119,7 +119,7 @@ EDIT_FILE = {
   里出现了几百万次的名字，模型输出才稳定；
 - **schema 属性、handler 形参两处逐字同名**：`handler(**block.input)`
   的机制让名字不同名不是"软失败"而是当场 `TypeError`（§10 不变量 3 +
-  §11 坑点 1）。`addBlockedBy` 是 15 工具里唯一的 camelCase 例外，
+  §11 坑点 1）。`addBlockedBy` 是 18 工具里唯一的 camelCase 例外，
   同步时要格外小心（行为差异见 §6.6）。
 
 ### 2.5 格式纪律：schema 常量必须是 dict 字面量
@@ -130,16 +130,16 @@ EDIT_FILE = {
 头上。7d78025 同日实测案底（TASK_MANAGER.md §9 有完整记录）。任何新工具
 上线前先用 `all(isinstance(t, dict) for t in tools)` 过一遍。
 
-### 2.6 可见性：主循环 15 个 vs 子代理 5 个
+### 2.6 可见性：主循环 18 个 vs 子代理 5 个
 
-`subTools`（258-264）只收 `bash`/`read_file`/`write_file`/`edit_file`/`glob`
-五个通用文件工具；其余 10 个（todo_write、task、load_skill、compact 与 6 个
-任务依赖工具）主循环独享——防递归 fork、拦截语义只存在于主循环、`.lcc/task/`
+`subTools`（299-305）只收 `bash`/`read_file`/`write_file`/`edit_file`/`glob`
+五个通用文件工具；其余 13 个（todo_write、task、load_skill、compact、6 个
+任务依赖工具与 3 个 cron 工具）主循环独享——防递归 fork、拦截语义只存在于主循环、`.lcc/task/`
 看板归主代理（§10 不变量 5）。
 
-子代理的 `bash` 用的是 `sub_bash_info()`（316-319）而非 `bash_info()`：`deepcopy`
+子代理的 `bash` 用的是 `sub_bash_info()`（357-360）而非 `bash_info()`：`deepcopy`
 主 `BASH` 后 `pop("run_in_background")`——**从 schema 层就不给子代理后台参数**，
-与 §7 `run_subagent` 的 `allow_background=False`（554）构成双重禁令
+与 §7 `run_subagent` 的 `allow_background=False`（598）构成双重禁令
 （BACKGROUND_TASKS_MANAGER.md §9/§12）。
 
 ## 3. 工具注册总览
@@ -163,12 +163,16 @@ schema 本身与全部参数见 §2.3；这里只回答"谁路由到谁"：
 | `get_task` | `run_get_task`（§6.6） | ✗ |
 | `claim_task` | `run_claim_task`（§6.6） | ✗ |
 | `complete_task` | `run_complete_task`（§6.6） | ✗ |
+| `schedule_cron` | `run_schedule_cron`（CRON_SCHEDULER.md §8） | ✗ |
+| `list_crons` | `run_list_crons`（CRON_SCHEDULER.md §8） | ✗ |
+| `cancel_cron` | `run_cancel_cron`（CRON_SCHEDULER.md §8） | ✗ |
 
 后 6 个是任务依赖工具（业务全在 `task_manager.py`，本类只作薄转发；行为
-差异见 §6.6，细节见 TASK_MANAGER.md）。注意别把 `task`（子代理 fork，§7）
+差异见 §6.6，细节见 TASK_MANAGER.md）；再 3 个是 cron 定时工具（业务全在
+`cron_scheduler.py`，见 CRON_SCHEDULER.md §8）。注意别把 `task`（子代理 fork，§7）
 和 `create_task` 一系混为一谈。
 
-注意两张表不对称：`self.tools` 有 15 个 schema，`toolsHandlers` 只有 14 个
+注意两张表不对称：`self.tools` 有 18 个 schema，`toolsHandlers` 只有 17 个
 handler——`compact` 仍是唯一"模型可见、但路由表查无此人"的工具。
 
 ## 4. 构造与依赖
@@ -183,47 +187,47 @@ handler——`compact` 仍是唯一"模型可见、但路由表查无此人"的�
 | `hooks` | 构造参数（:246 声明，:253 引用） | **全进程唯一 Hooks 实例**（loop.py:16 创建、loop.py:21 注入），Pre/PostToolUse 都归它管（HOOKS.md §6） |
 | `client` | `Anthropic(base_url=...)` | 仅子代理自用；主循环另有自己的 client（loop.py:17） |
 | `skillManager` | `SkillManager(env.skillsDirPath)` | 构造即扫描技能目录（SKILL_MANAGER.md） |
-| `taskManager` | `TaskManager(env.taskDirPath)` | 6 个任务依赖工具的共享实例（222，TASK_MANAGER.md） |
-| `backgroundTasksManager` | `BackgroundTasksManager()` | 后台 bash 任务引擎（223）；**全库唯一实例**，`execute_tool` 的后台分支与 `run_bash` 前台共用它，`Loop` 经 `self.toolsManager` 复用它收结果（loop.py:76，BACKGROUND_TASKS_MANAGER.md） |
-| 4 张列表 | 225-271 | `tools`(225-241) / `toolsHandlers`(242-257) / `subTools`(258-264) / `subToolsHandlers`(265-271) |
+| `taskManager` | `TaskManager(env.taskDirPath)` | 6 个任务依赖工具的共享实例（256，TASK_MANAGER.md） |
+| `backgroundTasksManager` | `BackgroundTasksManager()` | 后台 bash 任务引擎（257）；**全库唯一实例**，`execute_tool` 的后台分支与 `run_bash` 前台共用它，`Loop` 经 `self.toolsManager` 复用它收结果（loop.py:76，BACKGROUND_TASKS_MANAGER.md） |
+| 4 张列表 | 260-312 | `tools`(260-279) / `toolsHandlers`(280-298) / `subTools`(299-305) / `subToolsHandlers`(306-312) |
 
 `MAX_SUBAGENT_TURNS = 50`（类常量，244 行）。除 `hooks` 外全部依赖**不接受注入**，测试替身只能事后覆写属性。
 
-## 5. execute_tool：唯一闸门入口（280-310）
+## 5. execute_tool：唯一闸门入口（321-351）
 
 ```
 execute_tool(block, handlers, allow_background=True)
-├─ trigger PreToolUse → 非 None？ 直接 return str(blocked)   （281-283）
+├─ trigger PreToolUse → 非 None？ 直接 return str(blocked)   （322-324）
 │     （handler 不执行、后台不启动、PostToolUse 也不触发——PERMISSION.md §6）
-├─ allow_background 且 should_run_background(name, input)？   （285）
+├─ allow_background 且 should_run_background(name, input)？   （326）
 │     真（后台分支，仅主循环 bash + run_in_background=true）：
-│        task_id = start_background_task(block)               （287）
-│        output = "[Background task {id} started] ...later turn."（288-291）
-│        启动异常 → output = "[Background task start error] {e}"（292-293）
+│        task_id = start_background_task(block)               （328）
+│        output = "[Background task {id} started] ...later turn."（329-332）
+│        启动异常 → output = "[Background task start error] {e}"（333-334）
 │     假（前台分支）：
 │        handler = handlers.get(name)
-│           查无 → output = "Unknown:{name}"                  （299-300，仍走 PostToolUse）
+│           查无 → output = "Unknown:{name}"                  （340-341，仍走 PostToolUse）
 │           有 handler →
-│              tool_input = dict(block.input)                 （304）
+│              tool_input = dict(block.input)                 （345）
 │              pop("run_in_background", False) 且 allow_background=False
-│                    → 打印降级提示，照常前台执行             （305-306）
-│              output = handler(**tool_input)                 （307）
-└─ trigger PostToolUse(block, output)（返回值丢弃）→ return str(output)（309-310）
+│                    → 打印降级提示，照常前台执行             （346-347）
+│              output = handler(**tool_input)                 （348）
+└─ trigger PostToolUse(block, output)（返回值丢弃）→ return str(output)（350-351）
 ```
 
 关键语义：
 
-- **后台门控三条件**（285 + `should_run_background`）：① `allow_background`（主循环默认
+- **后台门控三条件**（326 + `should_run_background`）：① `allow_background`（主循环默认
   True；`run_subagent` 传 False）② 工具名是 `bash` ③ `input.get("run_in_background") is
   True`（严格布尔）。全满足才转后台，立即回占位 tool_result，真结果由 `Loop` 后续轮收割
   （BACKGROUND_TASKS_MANAGER.md §9/§10）；
 - **`run_in_background` 被"吸收"**：前台分支先 `dict(block.input)` 再
-  `pop("run_in_background", False)`（304-305），使 `run_bash(command)` 这类形参里没有它的
+  `pop("run_in_background", False)`（345-346），使 `run_bash(command)` 这类形参里没有它的
   handler **不会**因这个键而 `TypeError`；不允许后台却带了它 → 打印
-  `[background] not allowed in this context, running in foreground` 后前台执行（306）；
+  `[background] not allowed in this context, running in foreground` 后前台执行（347）；
 - **错误即数据**：handler 返回值（含 `Error:...`、占位 `[Background task …]` 文本）原样成为
   tool_result 喂回模型；handler 内部约定自吞异常（§6）；
-- **裸调用仍在**（307）：除 `run_in_background` 外的其他 schema 外野参数、或漏 required
+- **裸调用仍在**（348）：除 `run_in_background` 外的其他 schema 外野参数、或漏 required
   参数 → `TypeError` **不被捕获**，一路炸穿主循环（§11.1）；
 - 同一批多个 `tool_use` 逐个顺序执行（调用方 for 循环），无并行。
 
@@ -252,14 +256,14 @@ execute_tool(block, handlers, allow_background=True)
 
 | | 行为 | 返回 |
 |---|---|---|
-| `run_read`（388-395） | 整文件 `read_text` 后 `splitlines`；给了 `limit` 且小于总行数 → 前 limit 行 + `... (N more lines)` | 文件内容；**未给 limit 不截断** |
-| `run_write`（398-405） | 先 `parent.mkdir(parents=True, exist_ok=True)` 再整写 | `Wrote N bytes to {path}` |
-| `run_edit`（408-417） | 读全文 → `old_string` 必须存在否则报错 → `replace(old, new, 1)` **只替换第一处** | `Edited {path}` |
+| `run_read`（436-443） | 整文件 `read_text` 后 `splitlines`；给了 `limit` 且小于总行数 → 前 limit 行 + `... (N more lines)` | 文件内容；**未给 limit 不截断** |
+| `run_write`（446-453） | 先 `parent.mkdir(parents=True, exist_ok=True)` 再整写 | `Wrote N bytes to {path}` |
+| `run_edit`（456-465） | 读全文 → `old_string` 必须存在否则报错 → `replace(old, new, 1)` **只替换第一处** | `Edited {path}` |
 
 三者的 `except Exception` 把一切（含 `safe_path` 的 `ValueError`）转成
 `Error:...` 文本；小瑕疵：`run_write` 的格式串是 `f"Error{e}"`，少了冒号。
 
-### 6.3 run_glob（420-437）
+### 6.3 run_glob（468-485）
 
 - `glob.glob(pattern, root_dir=workDirPath, recursive=True)`；
 - 每条命中单独过 `resolve + is_relative_to` 围栏——symlink/绝对 pattern
@@ -267,7 +271,7 @@ execute_tool(block, handlers, allow_background=True)
 - `sorted` 稳定序，前 200 条，溢出追加
   `...(more matches omitted; narrow the pattern)`；空 → `(no matches)`。
 
-### 6.4 todo_write（440-496、499-504）
+### 6.4 todo_write（488-544、547-552）
 
 `update_todos` 纯校验+渲染，**无任何持久化副作用**——todo 列表的唯一
 事实来源就是模型消息流里这些格式化字符串：
@@ -283,38 +287,38 @@ execute_tool(block, handlers, allow_background=True)
 `<reminder>Update your todos.</reminder>`（loop.py:181-190）——提醒逻辑在
 loop 不在本类。
 
-### 6.5 run_load_skill（565-566）
+### 6.5 run_load_skill（609-610）
 
 一行转发 `skillManager.load(name)`，无长度控制（SKILL_MANAGER.md §7）。
 
-### 6.6 任务依赖工具（569-609，细节见 TASK_MANAGER.md）
+### 6.6 任务依赖工具（613-653，细节见 TASK_MANAGER.md）
 
-6 个工具全部转发给 `taskManager`（222 行自建
+6 个工具全部转发给 `taskManager`（256 行自建
 `TaskManager(env.taskDirPath)`），本类只做薄包装：
 
 | 工具 | 实现 |
 |---|---|
-| `create_task` | `run_create_task`（569-572） |
-| `update_task` | `run_update_task`（574-578） |
-| `list_tasks` | `run_list_tasks`（580-600） |
-| `get_task` | `run_get_task`（602-603） |
-| `claim_task` | `run_claim_task`（605-606） |
-| `complete_task` | `run_complete_task`（608-609） |
+| `create_task` | `run_create_task`（613-616） |
+| `update_task` | `run_update_task`（618-622） |
+| `list_tasks` | `run_list_tasks`（624-644） |
+| `get_task` | `run_get_task`（646-647） |
+| `claim_task` | `run_claim_task`（649-650） |
+| `complete_task` | `run_complete_task`（652-653） |
 
 schema 定义与登记方式与前 9 个工具完全同构（参数总表见 §2.3，三处登记见
 §10 不变量 1），所以本节只记**行为差异**：
 
 - 全是薄包装：`run_claim_task`/`run_complete_task` 写死
-  `owner="agent"`（606、609）——没有第二方，认领即绑定；
-- `run_update_task` 的形参名 `addBlockedBy` 是 15 工具里唯一的 camelCase
-  （574），与 schema 属性名逐字一致（§10 不变量 3、§2.4），改哪头都得同步；
-- `run_list_tasks`（580-600）渲染 `[ ]/[>]/[x]` + status + owner +
-  blockedBy，观感刻意贴近 `update_todos`（§6.4），但事实来源是
-   `.lcc/task/` 目录里的 JSON 文件，不是消息流；
-- 6 个工具都**不在** `subTools`（258-264）——子代理碰不到任务体系，
+  `owner="agent"`（650、653）——没有第二方，认领即绑定；
+- `run_update_task` 的形参名 `addBlockedBy` 是 18 工具里唯一的 camelCase
+  （618），与 schema 属性名逐字一致（§10 不变量 3、§2.4），改哪头都得同步；
+- `run_list_tasks`（624-644）渲染 `[ ]/[>]/[x]` + status + owner +
+   blockedBy，观感刻意贴近 `update_todos`（§6.4），但事实来源是
+    `.lcc/task/` 目录里的 JSON 文件，不是消息流；
+- 6 个工具都**不在** `subTools`（299-305）——子代理碰不到任务体系，
   与 §10 不变量 5 的收窄原则一致。
 
-## 7. task 与子代理（run_subagent，522-563）
+## 7. task 与子代理（run_subagent，570-607）
 
 ```
 messages = [{user: prompt}]                    ← 全新上下文，不带主对话历史
@@ -331,25 +335,25 @@ for _ in range(50):
 ```
 
 - **一次性问答**：主代理只见最终文本，看不到子代理中间过程；
-- 工具面收窄到 5 个（`subTools`，258-264，见 §2.6），因此拿不到
-  task/load_skill/todo_write/6 个任务依赖工具（§6.6），
+- 工具面收窄到 5 个（`subTools`，299-305，见 §2.6），因此拿不到
+  task/load_skill/todo_write/6 个任务依赖工具与 3 个 cron 工具（§6.6/CRON_SCHEDULER.md §8），
   也拿不到 compact 的 schema；
-- 子代理的 bash schema 是 `sub_bash_info`（316-319，已删
+- 子代理的 bash schema 是 `sub_bash_info`（357-360，已删
   `run_in_background` 属性），且工具执行显式传
-  `allow_background=False`（554）——schema 与路由双重禁止子代理起后台
+  `allow_background=False`（598）——schema 与路由双重禁止子代理起后台
   任务，误传参数会被吸收并降级前台执行（§5，
   BACKGROUND_TASKS_MANAGER.md §9）；
 - 子代理工具调用同样经过 **Pre/PostToolUse**（全进程唯一事件总线，构造注入，
   HOOKS.md §6）→ Permission 对孙调用一视同仁；
 - 子代理的 messages **不经 CompactManager**（无 prepare/无 reactive
   兜底），溢出只能靠 API 报错自毁；
-- `extract_text`（507-519）：只刮 `type=="text"` 块，无 text 块时返回
+- `extract_text`（555-567）：只刮 `type=="text"` 块，无 text 块时返回
   `(no summary)`；不检查 `stop_reason`——`max_tokens` 截断的半截回答
   只要没带 tool_use 就会被当最终答案返回。
 
 ## 8. compact：注册但不路由（特殊公民）
 
-- `COMPACT` schema 在 `self.tools`（128-137、登记 234）——模型可见可调；
+- `COMPACT` schema 在 `self.tools`（130-141、登记 269）——模型可见可调；
 - `toolsHandlers` **无** `compact` 项；主循环在分发前按 `tool_names.COMPACT`
   常量拦截（loop.py:165-167），置位 `compact_requested`，回合工具结果 append 完后
   调 `compactManager.compact_history` 整列表替换（loop.py:193-194）；
@@ -368,9 +372,9 @@ if not path.is_relative_to(env.workDirPath): raise ValueError(...)
 - 这是**硬线**：不问人、不可被人工放行（与 permission 规则 1 的"问人"
   层互补，两层关系见 PERMISSION.md §7.1）；
 - 绝对路径参数会直接替换基准（`Path / "/abs"` 语义），随后被围栏判住；
-- 类内 `safe_path` 被定义了**两次**（273-277 与 381-385，内容逐字相同）：
-  Python 类体内后定义覆盖前者，273 那份是死代码。行为无差异，但改动时
-  只改 381 才生效——务必注意。
+- 类内 `safe_path` 被定义了**两次**（314-318 与 429-433，内容逐字相同）：
+  Python 类体内后定义覆盖前者，314 那份是死代码。行为无差异，但改动时
+  只改 429 才生效——务必注意。
 
 ## 10. 不变量（改代码前必读）
 
@@ -392,9 +396,9 @@ if not path.is_relative_to(env.workDirPath): raise ValueError(...)
 ## 11. 已知坑点
 
 1. **参数畸形 → 主循环崩溃**：模型漏传 required 或多传 schema 外的野参数，
-   `handler(**tool_input)`（307）抛 `TypeError`，`execute_tool` 与 loop 都不接
+   `handler(**tool_input)`（348）抛 `TypeError`，`execute_tool` 与 loop 都不接
    ——整个程序穿透退出。`run_in_background` 是唯一被前台分支吸收的参数
-   （304-305，见 §5），其余野参数不在吸收之列；schema 对模型只是软约束
+   （345-346，见 §5），其余野参数不在吸收之列；schema 对模型只是软约束
    （命名先验案底见 §2.4）；
 2. `run_read` 无 limit 时全文返回，大文件一口烧穿上下文，事后只能靠
    CompactManager 五级流水线救（跨模块互不感知，同 SKILL_MANAGER.md §7
@@ -422,7 +426,7 @@ if not path.is_relative_to(env.workDirPath): raise ValueError(...)
 | `permission.py` | 经 hooks 间接闸门所有工具执行（PERMISSION.md） |
 | `tool_names.py` | 零依赖常量叶子：本类 schema `"name"` 与两张路由表的键、以及 permission/hooks/loop/background_tasks_manager 的名字比较共用同一组常量（单一事实源） |
 | `skill_manager.py` | 持有唯一实例；`skills_catalog()` 被 loop 启动时调一次冻结进系统提示 |
-| `task_manager.py` | 持有唯一实例（222 自建）；6 个任务依赖工具转发给它（§6.6，TASK_MANAGER.md） |
-| `background_tasks_manager.py` | 持有唯一实例（223 自建）；`execute_tool` 后台分支接线（285-293）；`run_bash` 前台复用其 `run_bash_process`/`format_bash_result`（378-379）；子代理经 `sub_bash_info`（316-319）与 `allow_background=False`（554）双重禁用后台（BACKGROUND_TASKS_MANAGER.md） |
+| `task_manager.py` | 持有唯一实例（256 自建）；6 个任务依赖工具转发给它（§6.6，TASK_MANAGER.md） |
+| `background_tasks_manager.py` | 持有唯一实例（257 自建）；`execute_tool` 后台分支接线（326-334）；`run_bash` 前台复用其 `run_bash_process`/`format_bash_result`（426-427）；子代理经 `sub_bash_info`（357-360）与 `allow_background=False`（598）双重禁用后台（BACKGROUND_TASKS_MANAGER.md） |
 | `compact_manager.py` | `compact` schema 的"认领方"在主循环，本类只负责让它可见 |
 | `env.py` | 工作区与模型配置的取值来源（ENV.md） |

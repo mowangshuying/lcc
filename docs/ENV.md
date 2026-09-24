@@ -24,7 +24,7 @@
 | `toolResultsDirPath` | `<cwd>/.lcc/task_outputs/tool-results` | 传给 `CompactManager`：大工具结果落盘 |
 | `memoryDirPath` | `<cwd>/.lcc/memory` | `MemoryManager` 自建使用（memory_manager.py:126、133，MEMORY_MANAGER.md） |
 | `memoryIndexPath` | `memoryDirPath / MEMORY.md` | 记忆索引文件路径（env.py:20），由 `MemoryManager` 读写 |
-| `taskDirPath` | `<cwd>/.lcc/task` | 传给 `TaskManager` 构造（tools_manager.py:222），任务 JSON 落盘目录（TASK_MANAGER.md §3） |
+| `taskDirPath` | `<cwd>/.lcc/task` | 传给 `TaskManager` 构造（tools_manager.py:256），任务 JSON 落盘目录（TASK_MANAGER.md §3） |
 | `tempDirPath` | `<cwd>/.lcc/temp` | 临时/试验文件目录（系统提示要求一次性文件写入此处，loop.py:42-44；由 `Env.__init__` 自动 mkdir） |
 
 `workDir` 与 `workDirPath` 是同一目录的两种形态（str / Path）：
@@ -46,7 +46,7 @@ if os.getenv("ANTHROPIC_BASE_URL"):
    （`x-api-key`，即 SDK 稍后从环境变量自取的 `ANTHROPIC_API_KEY`），
    避免 bearer-token 与 api-key 同时发出被网关拒绝。
    **顺序依赖**：必须先建 `Env()` 再建 `Anthropic()` 客户端，SDK 是在
-    客户端构造时才读取环境变量的（loop.py:15→16、tools_manager.py:247→254
+     客户端构造时才读取环境变量的（loop.py:15→17、tools_manager.py:247→254
    都恰好满足，改动构造顺序会静默失效）。
 
 ## 4. 不是单例：一次启动会 new 八个
@@ -118,9 +118,9 @@ Loop.env (loop.py:15)
 | `loop.py` | 建 Env → 建 client → 建 ToolsManager → 注入 CompactManager → 建 MemoryManager（顺序依赖见 §3.2） |
 | `tools_manager.py` | 持 Env；文件围栏与 bash 子进程 cwd 用 `workDirPath`，子代理系统提示词用 `workDir` |
 | `permission.py` | 规则 1 的围栏基准（PERMISSION.md §4） |
-| `skill_manager.py` | 不直接用 Env，目录经构造参数传入（tools_manager.py:221 取 `skillsDirPath`） |
+| `skill_manager.py` | 不直接用 Env，目录经构造参数传入（tools_manager.py:255 取 `skillsDirPath`） |
 | `compact_manager.py` | 两个产物目录路径的注入来源 |
 | `memory_manager.py` | 自带 `Env()` 实例（memory_manager.py:32），读 `memoryDirPath`/`memoryIndexPath` |
-| `task_manager.py` | 自带 `Env()` 实例（task_manager.py:26）；但落盘目录经构造参数传入（tools_manager.py:222 取 `taskDirPath`） |
+| `task_manager.py` | 自带 `Env()` 实例（task_manager.py:26）；但落盘目录经构造参数传入（tools_manager.py:256 取 `taskDirPath`） |
 | `background_tasks_manager.py` | 自带 `Env()` 实例（background_tasks_manager.py:12），bash 子进程 cwd 取 `workDirPath` |
 | `.gitignore` | 排除 `.env`、`/.lcc`（`.lcc/` 下全部运行时产物，见 §7） |

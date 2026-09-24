@@ -1,8 +1,8 @@
 # TaskManager 技术文档
 
 > 对应源码：`task_manager.py`（本仓库当前版本 226 行）
-> 状态：完整，**已接入主循环**（`tools_manager.py:222` 构造；6 个工具 schema 注册于
-> `tools_manager.py:235-240`、handler 路由于 `tools_manager.py:251-256`）
+> 状态：完整，**已接入主循环**（`tools_manager.py:256` 构造；6 个工具 schema 注册于
+> `tools_manager.py:270-275`、handler 路由于 `tools_manager.py:289-294`）
 > 引入提交：`7d78025` feat(task): add TaskManager with dependency-aware task tools
 
 ## 1. 它解决什么问题
@@ -29,7 +29,7 @@
 | `subject` | `str` | 入参（strip 后非空） | 标题 |
 | `description` | `str` | 入参，默认 `""` | 描述 |
 | `status` | `str` | `"pending"` | 合法集见下 |
-| `owner` | `str \| None` | `None` | 认领者；工具层恒为 `"agent"`（tools_manager.py:606/609） |
+| `owner` | `str \| None` | `None` | 认领者；工具层恒为 `"agent"`（tools_manager.py:650/653） |
 | `blockedBy` | `list[str]` | `[]` | 前置任务 ID 列表 |
 
 - **合法状态集**：`(pending, in_progress, completed)`，白名单校验只写在
@@ -184,27 +184,27 @@ pending ────────────────────────
 
 | 工具 | schema 行 | 封装函数行 | 入参 | 返回给模型 |
 |---|---|---|---|---|
-| `create_task` | 141-153 | 569-572 | `subject`，`description?` | `Created {id}: {subject}` + print |
-| `update_task` | 155-171 | 574-578 | `task_id`、`addBlockedBy` | `Updated {id} blockedBy: ...` + print |
-| `list_tasks` | 173-177 | 580-600 | 无 | `[ ]/[>]/[x] {id}: {subject} [{status}] [owner] (blockedBy: ...)`；空→`No tasks. Use create_task to add some.` |
-| `get_task` | 179-187 | 602-603 | `task_id` | 任务全文 JSON 字符串 |
-| `claim_task` | 189-197 | 605-606 | `task_id` | claim 的文本（含 Blocked by） |
-| `complete_task` | 199-207 | 608-609 | `task_id` | complete 的文本（含 Unblocked） |
+| `create_task` | 143-156 | 613-616 | `subject`，`description?` | `Created {id}: {subject}` + print |
+| `update_task` | 157-173 | 618-622 | `task_id`、`addBlockedBy` | `Updated {id} blockedBy: ...` + print |
+| `list_tasks` | 175-180 | 624-644 | 无 | `[ ]/[>]/[x] {id}: {subject} [{status}] [owner] (blockedBy: ...)`；空→`No tasks. Use create_task to add some.` |
+| `get_task` | 181-190 | 646-647 | `task_id` | 任务全文 JSON 字符串 |
+| `claim_task` | 191-200 | 649-650 | `task_id` | claim 的文本（含 Blocked by） |
+| `complete_task` | 201-210 | 652-653 | `task_id` | complete 的文本（含 Unblocked） |
 
 - **登记三处同步**（TOOLS_MANAGER.md §10 不变量 1 在 task 上的体现）：
-  schema 类属性 + `self.tools`（235-240，经 `*_info()` 转发方法
-  348-364 取值）+ `toolsHandlers`（251-256）；
-- **子代理不可见**：6 个 task 工具都不在 `subTools`（258-264），看板只归
+  schema 类属性 + `self.tools`（270-275，经 `*_info()` 转发方法
+  389-406 取值）+ `toolsHandlers`（289-294）；
+- **子代理不可见**：6 个 task 工具都不在 `subTools`（299-305），看板只归
   主代理管；
-- `owner` 在工具层写死 `"agent"`（606、609）——当前没有多 agent 概念，
+- `owner` 在工具层写死 `"agent"`（650、653）——当前没有多 agent 概念，
   owner 字段是为将来预留的；
 - `run_*` 封装全部**无 try/except**：claim/complete 的"业务失败"以文本
   返回天然安全，但 create/update/get/list 触发的 `ValueError` /
   `FileNotFoundError` 会穿透 `execute_tool` 的裸调用
-  （tools_manager.py:307）炸穿主循环（TOOLS_MANAGER.md §11.1 同款，
+   （tools_manager.py:348）炸穿主循环（TOOLS_MANAGER.md §11.1 同款，
   详见 §9）；
 - **参数名即契约**：`handler(**block.input)` 靠形参名匹配 schema 属性名，
-  `update_task` 的 camelCase `addBlockedBy`（162 与 574）必须逐字一致；
+   `update_task` 的 camelCase `addBlockedBy`（164 与 618）必须逐字一致；
 - **历史坑（值得记住）**：本提交初版把 6 个 task schema 类属性写成
   `{...},`——尾逗号使每个 dict 字面量变一元 tuple，序列化后 `tools` 数组
   元素成了 `[{...}]`，网关直接 400 `Request body format invalid`。
@@ -227,7 +227,7 @@ pending ────────────────────────
 
 | 项 | 值 | 位置 |
 |---|---|---|
-| ID 正则 | `^task_[0-9a-f]{8}$` | task_manager.py:24（UPDATE_TASK schema 里的 `pattern` 是它的镜像，tools_manager.py:161/164） |
+| ID 正则 | `^task_[0-9a-f]{8}$` | task_manager.py:24（UPDATE_TASK schema 里的 `pattern` 是它的镜像，tools_manager.py:163/166） |
 | ID 随机源 | `secrets.token_hex(4)` | task_manager.py:62 |
 | create 重试 | 100 次 | task_manager.py:61 |
 | 合法状态 | `pending/in_progress/completed` | task_manager.py:130 |
@@ -299,14 +299,14 @@ pending ────────────────────────
    与返回给模型的文本冗余但无害；若将来做流式 UI，这两路要合并。
 4. **`_depends_on` 用 `visited` 兜圈**：即便盘上已有环（手改文件可造出来），
    搜索也只停不报——它的前提是 §7 不变量 3 保证入图无环，对存量环不设防。
-5. 兄弟文档 TOOLS_MANAGER.md 的行号坐标已按 610 行基线回填：schema 详解在
-    其 §2，任务工具薄包装在其 §6.6；本文 §6 仍是 task 接线细节的权威主。
+5. 兄弟文档 TOOLS_MANAGER.md 的 schema 详解在其 §2，任务工具薄包装在其
+     §6.6；本文 §6 仍是 task 接线细节的权威。
 
 ## 11. 与其他模块的关系
 
 | 模块 | 关系 |
 |---|---|
-| `tools_manager.py` | 唯一消费方：`tools_manager.py:12` 导入、`tools_manager.py:222` 以 `env.taskDirPath` 构造；6 schema（141-207）、`self.tools` 注册（235-240）、`toolsHandlers` 路由（251-256）、`run_*` 封装（569-609）；子代理 `subTools`（258-264）不含 task |
+| `tools_manager.py` | 唯一消费方：`tools_manager.py:12` 导入、`tools_manager.py:256` 以 `env.taskDirPath` 构造；6 schema（143-210）、`self.tools` 注册（270-275）、`toolsHandlers` 路由（289-294）、`run_*` 封装（613-653）；子代理 `subTools`（299-305）不含 task |
 | `env.py` | 提供 `taskDirPath = <workDir>/.lcc/task`（env.py:21）与工作区基准 `workDirPath`（`_root` 逃逸检查的参照物） |
 | `.gitignore` | `/.lcc`（.gitignore:6）——运行时看板不入版本库 |
 | `loop.py` | 无直接引用；6 工具经 `execute_tool` 常规路由执行（无 compact 式拦截） |

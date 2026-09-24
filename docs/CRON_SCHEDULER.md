@@ -151,7 +151,7 @@ ack 内部（:292-333）：
   `pending_delivery=True` → 重启回灌队列 → 同一 prompt 再执行一次。这是
   at-least-once 的既定代价，无幂等去重；
 - 交付粒度是**回合边界**：调度线程照常入队，但 `run_delivery` 只在 `run()` 的
-  `wait_for_cli_event` 返回 `"cron"` 之后才被调（loop.py:256）——模型正在跑长回合
+  `wait_for_cli_event` 返回 `"cron"` 之后才被调（loop.py:255）——模型正在跑长回合
   时任务在队列里等待。
 
 ## 8. 接线现状（必读）
@@ -178,7 +178,7 @@ self.toolsManager.cronScheduler`（loop.py:29）取得，此后 loop 不再二�
 ```
 loop.py:238  self.cron.start_runtime_threads()        # 启动时：load 落盘任务 + 起轮询线程
 loop.py:209-210  self.cron.has_cron_queue() → 返回 ("cron", None)   # 事件等待：cron 优先于用户输入
-loop.py:256  self.cron.run_delivery(deliver)          # 投递唯一入口；deliver 闭包 :250-254：
+loop.py:255  self.cron.run_delivery(deliver)          # 投递唯一入口；deliver 闭包 :250-254：
              #   :252  history.append({"role": "user", "content": f"[Scheduled] {job.prompt}"})
              #   :253  print [cron] delivered {id}
              #   :254  _run_turn(history, "\n".join(job.prompt))  # payload 是无前缀原文

@@ -1,8 +1,8 @@
 # BackgroundTasksManager 技术文档
 
 > 对应源码：`background_tasks_manager.py`（本仓库当前版本 185 行）
-> 状态：完整，**已接入主循环**（`tools_manager.py:223` 构造为 `ToolsManager` 的自持成员；
-> 后台路由在 `tools_manager.py:285` 的 `execute_tool`、结果注入在 `loop.py:76/115` 的
+> 状态：完整，**已接入主循环**（`tools_manager.py:257` 构造为 `ToolsManager` 的自持成员；
+> 后台路由在 `tools_manager.py:321` 的 `execute_tool`、结果注入在 `loop.py:76/114` 的
 > `inject_background_results`）
 > 引入提交：`7fd5f0e` feat(tools): run bash tasks in background via BackgroundTasksManager
 
@@ -22,7 +22,7 @@
 3. **进程托管**：所有子进程（含前台 bash）登记在 `shell_processes` 集合，退出/信号时
    统一收割，不留孤儿（§8）。
 
-对外没有直接入口——模型侧只看到 `bash` 的一个可选参数（`tools_manager.py:26`）；
+对外没有直接入口——模型侧只看到 `bash` 的一个可选参数（`tools_manager.py:28`）；
 调度全在 `ToolsManager.execute_tool`（TOOLS_MANAGER.md §5），收割全在 `Loop`
 （`loop.py:75-103`）。本类是被这两头驱动的引擎。
 
@@ -43,7 +43,7 @@
   （非跨进程，见 §10 不变量 4）。
 - **两个锁**：任务表用 `self.lock`，子进程集合用 `self.shell_processes_lock`。后者是
   `RLock` 且独立，正是因为 `run_bash_process` 既被后台线程（经 `run`）调用、又被主线程
-  的 `run_bash`（`tools_manager.py:378`）调用，两处都要往 `shell_processes` 增删。
+  的 `run_bash`（`tools_manager.py:417`）调用，两处都要往 `shell_processes` 增删。
 
 ## 3. 方法地图
 
@@ -81,7 +81,7 @@ start(block)
   自己的 task（否则 `run` 里 `self.tasks.get` 返回 None 会静默丢结果，64-66）；
 - **回滚**：`thread.start()` 抛异常时把刚登记的 task 弹出再上抛（42-45），不留僵尸条目；
 - `start` 抛出的异常（非 bash / 空命令 / 线程起不来）由 `execute_tool` 的 `try/except` 兜成
-  文本 `[Background task start error] {error}`（`tools_manager.py:292-293`），不会炸穿主循环。
+  文本 `[Background task start error] {error}`（`tools_manager.py:333-334`），不会炸穿主循环。
 
 ## 5. 线程体：run 与结果落地（50-70）
 
@@ -104,7 +104,7 @@ run(task_id, command)
 ## 6. 进程执行：run_bash_process（106-142）——前后台共用
 
 这是**唯一真正跑 shell 的地方**：后台线程经 `run` 调它，前台 `run_bash`
-（`tools_manager.py:378`）也直接调它，二者行为一致。
+（`tools_manager.py:417`）也直接调它，二者行为一致。
 
 ```
 Popen(command, shell=True, stdout=PIPE, stderr=PIPE, text=True,
@@ -176,18 +176,18 @@ return notifications: list[str]                   ← 95
 ## 9. 与 execute_tool 的接线（TOOLS_MANAGER.md §5）
 
 模型产出 `tool_use(bash, {command, run_in_background: true})` 后，闸门在
-`tools_manager.py:285` 决策：
+`tools_manager.py:326` 决策：
 
 ```
 execute_tool(block, handlers, allow_background=True)
-├─ allow_background 且 should_run_background(name, input)?   ← tools_manager.py:285
-│     是 → start_background_task(block) → task_id            ← 287
+├─ allow_background 且 should_run_background(name, input)?   ← tools_manager.py:326
+│     是 → start_background_task(block) → task_id            ← 328
 │           output = "[Background task {id} started] The result will be collected
-│                     on a later turn."                      ← 288-291
-│           （异常 → "[Background task start error] {e}"）    ← 292-293
+│                     on a later turn."                      ← 329-332
+│           （异常 → "[Background task start error] {e}"）    ← 333-334
 │     否 → 走前台 handler 分支，dict(block.input).pop("run_in_background") 吸收该参数
 │          （见 TOOLS_MANAGER.md §5；子代理 allow_background=False → 前台降级）
-└─ output 作为 tool_result 回填 block.id                      ← tools_manager.py:309-310
+└─ output 作为 tool_result 回填 block.id                      ← tools_manager.py:350-351
 ```
 
 - **立即回填的是占位文本**，不是真实结果。原始 `tool_use` 的配对在这一刻就闭合了——
@@ -219,17 +219,17 @@ while True:
     inject_background_results(messages)   ← 114  收割→合并进上一条 user / 新建 user
     compactManager.prepare(...)           ← 115
     response = messages.create(...)        ← 118  模型这一轮就能看见 <task_notification>
-    ... execute_tool 可能又 start 新后台任务（285）
+    ... execute_tool 可能又 start 新后台任务（326）
 ```
 
 **为什么是单实例（关键，曾踩坑）**：`Loop` **不再自建** `BackgroundTasksManager`，而是读
 `self.toolsManager.backgroundTasksManager`（`loop.py:76`）。若两处各 new 一个，任务登记进
 `ToolsManager` 那份、`Loop` 从自己那份 `collect`——`ready` 永远为空，结果**静默丢失**。
 `ToolsManager.__init__` 里 `backgroundTasksManager = BackgroundTasksManager()`
-（`tools_manager.py:223`）是**全库唯一实例**。
+（`tools_manager.py:257`）是**全库唯一实例**。
 
 **side-channel 不收割**：`memory_manager` / `compact_manager` 的单轮 LLM 调用、以及
-`run_subagent` 的子循环（`tools_manager.py:522-563`）**都不调 `inject_background_results`**。
+`run_subagent` 的子循环（`tools_manager.py:570-607`）**都不调 `inject_background_results`**。
 推论：子代理回合内、以及任何旁路调用期间，主循环已启动的后台任务不会被收割；它们只在
 下一次主循环 while 顶部被收。
 
@@ -272,28 +272,28 @@ while True:
 
 ## 12. 不变量（改代码前必读）
 
-1. **全库唯一实例、且只在主线程构造**：`tools_manager.py:223` 那一个。`Loop` 经
+1. **全库唯一实例、且只在主线程构造**：`tools_manager.py:257` 那一个。`Loop` 经
    `toolsManager.backgroundTasksManager` 复用（`loop.py:76`），绝不另建（§10 双实例丢结果
    教训）；
 2. **只有 bash 能后台**：`start` 硬拒非 bash（23-24），`should_run_background` 也硬卡
    `name == "bash"`（98）——给别的工具开后台是设计外的；
 3. **占位先闭合配对，通知后独立注入**：启动即回 `[Background task …]` tool_result
-   （`tools_manager.py:288-291`）满足 API 的 tool_use↔tool_result 配对；真结果一律走
-   `<task_notification>` 的纯文本 user 块，不回填原 tool_use_id（§7/§9）；
-4. **`collect` 一次性消费**：弹出 `tasks`/`results`/`ready`（78-81），同一结果只投一次；
+   （`tools_manager.py:329-332`）满足 API 的 tool_use↔tool_result 配对；真结果一律走
+    `<task_notification>` 的纯文本 user 块，不回填原 tool_use_id（§7/§9）；
+4. **`collect` 一次性消费**：弹出 `tasks`/`results`/`ready`（76-79），同一结果只投一次；
 5. **前后台共用 `run_bash_process`**（106-142）：改超时/截断/cwd 会同时影响前台
    `run_bash` 与后台 `run`，两处行为必须一致；
-6. **子代理禁止后台**：schema 层 `sub_bash_info`（`tools_manager.py:316-319`）删掉
-   `run_in_background`，执行层 `run_subagent` 传 `allow_background=False`
-   （`tools_manager.py:554`）——双保险，见 TOOLS_MANAGER.md §2.6/§7。
+6. **子代理禁止后台**：schema 层 `sub_bash_info`（`tools_manager.py:357-360`）删掉
+    `run_in_background`，执行层 `run_subagent` 传 `allow_background=False`
+    （`tools_manager.py:598`）——双保险，见 TOOLS_MANAGER.md §2.6/§7。
 
 ## 13. 与其他模块的关系
 
 | 模块 | 关系 |
 |---|---|
-| `tools_manager.py` | 唯一持有方：`tools_manager.py:223` 自建唯一实例；`execute_tool` 调 `should_run_background`/`start_background_task`（`tools_manager.py:285-293`）；前台 `run_bash` 复用 `run_bash_process`/`format_bash_result`（`tools_manager.py:378-379`）；`sub_bash_info`（316-319）从 schema 层禁后台 |
-| `loop.py` | 唯一收割方：`inject_background_results`（76-104）在 `agent_loop` while 顶部（115）调 `collect_background_results`（77），把通知并入上一条 user 消息；side-channel 调用与子代理循环不收割 |
+| `tools_manager.py` | 唯一持有方：`tools_manager.py:257` 自建唯一实例；`execute_tool` 调 `should_run_background`/`start_background_task`（`tools_manager.py:326-334`）；前台 `run_bash` 复用 `run_bash_process`/`format_bash_result`（`tools_manager.py:426-427`）；`sub_bash_info`（357-360）从 schema 层禁后台 |
+| `loop.py` | 唯一收割方：`inject_background_results`（75-103）在 `agent_loop` while 顶部（114）调 `collect_background_results`（76），把通知并入上一条 user 消息；side-channel 调用与子代理循环不收割 |
 | `env.py` | 取 `workDirPath` 作子进程 cwd（`background_tasks_manager.py:116`）；第 3 个 Env 实例（ENV.md §4） |
-| `hooks.py` | 无直接引用；后台任务的启动/收割**不触** Pre/PostToolUse 之外的钩子（占位 output 仍走 PostToolUse，见 `tools_manager.py:309`） |
+| `hooks.py` | 无直接引用；后台任务的启动/收割**不触** Pre/PostToolUse 之外的钩子（占位 output 仍走 PostToolUse，见 `tools_manager.py:350`） |
 | `compact_manager.py` | 间接：`inject` 在 `prepare` 之前写消息，通知文本会随后续轮次被压缩流水线纳入历史（COMPACT_MANAGER.md） |
 | `task_manager.py` | **物种不同**：TaskManager 是落盘的依赖图看板（TASK_MANAGER.md），本模块是纯内存、进程级、会话内的一次性后台 shell 队列，二者无代码交集 |

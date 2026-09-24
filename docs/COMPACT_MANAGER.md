@@ -186,7 +186,7 @@ transcript（② 写过的那份）里——这是链路上已知的信息保全
 
 ## 8. 已知边界与接线现状
 
-- **接线现状（s08 已完成，详见 §10）**：
+- **接线现状（s12 已完成，详见 §10）**：
   - `prepare()`：主循环每轮 `messages.create` 之前调用；
   - `reactive_compact`：API 报 overflow 时被动救火，带重试上限；
   - COMPACT 工具：`toolsHandlers` 中**仍无 handler**，但主循环在执行工具前
@@ -222,7 +222,7 @@ transcript（② 写过的那份）里——这是链路上已知的信息保全
 | `env.py` | 提供 `transcriptDirPath`（`<workDir>/.lcc/transcripts`）与 `toolResultsDirPath`（`<workDir>/.lcc/task_outputs/tool-results`），构造时注入 |
 | `.gitignore` | 已排除 `.lcc/` 下运行时产物（`.lcc/transcripts/`、`.lcc/task_outputs/`） |
 
-## 10. 主循环接线（loop.py，s08）
+## 10. 主循环接线（loop.py，s12）
 
 ### 10.1 构造注入
 

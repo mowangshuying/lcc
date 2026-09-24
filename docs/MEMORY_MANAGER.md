@@ -2,7 +2,7 @@
 
 > 对应源码：`memory_manager.py`（本仓库当前版本 579 行）
 > 状态：完整，**已接入主循环**（`loop.py:31` 构造、`loop.py:110` 检索、
-> `loop.py:157/160` 提取与合并；接线由 commit `e8046cb` 引入）
+> `loop.py:157/159` 提取与合并；接线由 commit `e8046cb` 引入）
 
 ## 1. 它解决什么问题
 
@@ -280,7 +280,7 @@ consolidate_memories()
 
 | 模块 | 关系 |
 |---|---|
-| `loop.py` | 唯一调用方：构造（30）、每请求检索+重建系统提示（109-110）、最终回答后提取、提取有新增才合并（156-158）；模型无 memory 工具，ToolsManager 路由表中不存在本类任何入口 |
+| `loop.py` | 唯一调用方：构造（31）、每请求检索+重建系统提示（110-111）、最终回答后提取、提取有新增才合并（157-159）；模型无 memory 工具，ToolsManager 路由表中不存在本类任何入口 |
 | `env.py` | `memoryDirPath`/`memoryIndexPath` 取自 `env.py:19-20`；围栏用 `workDirPath`；模型与网关地址同源于 ENV.md |
 | `compact_manager.py` | **零直接依赖**。`.lcc/memory` 与 `.lcc/transcripts` 是两套互不感知的持久层；间接纠葛有二：记忆全文注入 system 不进压缩预算（§10.2）；提取读的是压缩后的 messages 尾部 12 条——压缩丢弃的历史不会被记忆链路"考古" |
 | `tools_manager.py` | 无交集；子代理完全没有记忆能力（`run_subagent` 不构造 MemoryManager），子代理对话也不参与主代理的提取（其 messages 不回传） |

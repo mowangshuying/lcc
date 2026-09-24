@@ -74,7 +74,7 @@ tools_manager.py:253 self.hooks = hooks                    # 只引用，不自�
 - `Stop` 归属裁决：**会话停止事件只由主循环出口触发一次**。历史上
   `run_subagent` 的最终回答分支复制了同样的 Stop 触发，语义是"子代理回合
   结束"而非"会话停止"——`summary_hook` 的打印口径（session used N tool
-  calls）与旧版文档 §6 对该行为的定性（双实例副作用）都指向前者，且
+  calls）与旧版文档对该行为的定性（双实例副作用）都指向前者，且
   force 拦截机制（§2）在工具侧从无消费者，故工具侧触发已删除；
 - `summary_hook` 现在每个逻辑回合只打印一次（统计主循环 messages）；
 - `Hooks.__init__` 的 6 条默认自注册（hooks.py:17-22）保持不变；
