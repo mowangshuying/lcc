@@ -665,9 +665,7 @@ class ToolsManager:
         return f"Scheduled {result.id}: {cron} -> {prompt}"
     
     def run_list_crons(self) -> str:
-        with self.cronScheduler.cron_lock:
-            jobs = list(self.cronScheduler.scheduled_jobs.values())
-        
+        jobs = self.cronScheduler.list_cron_jobs()
         if not jobs:
             return "No cron jobs."
 

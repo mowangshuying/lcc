@@ -1,6 +1,6 @@
 # CronScheduler 技术文档
 
-> 对应源码：`cron_scheduler.py`（本仓库当前版本 375 行）
+> 对应源码：`cron_scheduler.py`（本仓库当前版本 380 行）
 > 状态：完整，**已接入主循环与工具链**（三个 cron 工具 + 主循环注入闭环，见 §8）
 
 ## 1. 它解决什么问题
@@ -55,6 +55,7 @@ class CronJob:
 | `cron_scheduler_loop()` | — | — | 轮询主循环，见 §5 |
 | `start_runtime_threads()` | — | — | 幂等（`runtime_started` 守卫，:359-367）：先 `load_durable_jobs()`，再起 daemon 轮询线程 |
 | `stop_runtime_threads()` | — | — | `runtime_stop.set()` + `join(timeout=1)`（:369-375） |
+| `list_cron_jobs()` | — | 注册表快照 `list[CronJob]`，每次调用新列表（元素为原 job 引用）（:377-380） | 无——外部读注册表的**唯一公开入口**，调用方不再接触 `cron_lock`/`scheduled_jobs` |
 
 ## 4. cron 表达式语义
 
@@ -146,12 +147,12 @@ consume_cron_queue()        # 整队取出并清空
 :257 `self.cronScheduler = CronScheduler()`）。
 
 **三个工具**（schema :210-240，注册进主循环 `tools` 列表 :275-277，handler 映射
-:294-296，实现 :661-685）：
+:294-296，实现 :661-683）：
 
 | 工具 | handler | 转调 | 返回 |
 |---|---|---|---|
 | `schedule_cron` | `run_schedule_cron(cron, prompt, recurring=True, durable=True)` | `schedule_job` | 错误串包装成 `Error: {...}`；成功 `Scheduled {id}: {cron} -> {prompt}` |
-| `list_crons` | `run_list_crons()` | 持 `cron_lock` 读 `scheduled_jobs` | 每行 `{id}: {cron} -> {prompt[:60]} [recurring/one-shot, durable/session]` |
+| `list_crons` | `run_list_crons()` | 调 `list_cron_jobs()` 取注册表快照（调度器内部持锁） | 每行 `{id}: {cron} -> {prompt[:60]} [recurring/one-shot, durable/session]` |
 | `cancel_cron` | `run_cancel_cron(job_id)` | `cancel_job` | 原样透传 |
 
 `subTools`（:298-311）**不含** cron 三件套——子代理不能排/查/撤定时任务，

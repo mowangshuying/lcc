@@ -373,3 +373,8 @@ class CronScheduler:
         self.runtime_stop.set()
         self.scheduler_loop_thread.join(timeout=1)
         self.runtime_started = False
+        
+    def list_cron_jobs(self) -> list[CronJob]:
+        # 供外部只读展示的快照：内部持锁复制注册表，调用方不再接触 cron_lock / scheduled_jobs
+        with self.cron_lock:
+            return list(self.scheduled_jobs.values())
