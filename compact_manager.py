@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import uuid
 import re
+from log import log_info
 
 
 class CompactManager:
@@ -353,13 +354,13 @@ class CompactManager:
 
     def compact_history(self, messages: list, active_request: str) -> list:
         transcript = self.write_transcript(messages)
-        print(f"[transcript saved: {transcript}]")
+        log_info("compact", f"transcript saved: {transcript}")
         summary = self.summarize_history(messages)
         return [self.summary_message("Compacted", active_request, summary, transcript)]
 
     def reactive_compact(self, messages: list, active_request: str) -> list:
         transcript = self.write_transcript(messages)
-        print(f"[transcript saved: {transcript}]")
+        log_info("compact", f"transcript saved: {transcript}")
         tail_start = max(0, len(messages) - self.KEEP_RECENT_MESSAGES)
         if (tail_start > 0 and self.is_tool_result(messages[tail_start]) and self.has_tool_use(messages[tail_start - 1])):
             tail_start -= 1
@@ -386,6 +387,6 @@ class CompactManager:
             if self.estimate_chars(messages) > self.CONTEXT_CHAR_LIMIT:
                 messages = self.fit_tool_results(messages, target)
             if self.estimate_chars(messages) > self.CONTEXT_CHAR_LIMIT:
-                print("[auto compact]")
+                log_info("compact", "auto compact")
                 messages = self.compact_history(messages, active_request)
         return messages

@@ -1,6 +1,6 @@
 from env import Env
 from permission import Permission
-from color import COLOR_DEFAULT, COLOR_GREEN
+from log import log_info, log_warn
 from tool_names import BASH, EDIT_FILE, GLOB, READ_FILE, TASK, TODO_WRITE, WRITE_FILE
 
 class Hooks:
@@ -36,8 +36,8 @@ class Hooks:
 
     def log_before_use_tool_hook(self, block):
         args_preview = str(list(block.input.values())[:2])[:60]
-        print(
-            f"{COLOR_DEFAULT}[HOOK] {block.name}({args_preview}) {COLOR_DEFAULT}"
+        log_info(
+            "hook", f"{block.name}({args_preview})"
         )
         return None
 
@@ -59,21 +59,21 @@ class Hooks:
         elif block.name == TASK:
             info = f"task: {block.input.get('prompt', '')}"
 
-        print(
-            f"{COLOR_GREEN}[HOOK] tool_use: {block.name} - {info} {COLOR_DEFAULT}"
+        log_info(
+            "hook", f"tool_use: {block.name} - {info}"
         )
-        print(f"{COLOR_DEFAULT}[HOOK]tool_result:\n{output}{COLOR_DEFAULT}")
+        log_info("hook", f"tool_result:\n{output}")
 
     def large_output_hook(self, block, output):
         if len(str(output)) > 100000:
-            print(
-                f"{COLOR_DEFAULT}[HOOK] Large output from {block.name}: {len(str(output))} chars {COLOR_DEFAULT}"
+            log_warn(
+                "hook", f"Large output from {block.name}: {len(str(output))} chars"
             )
         return None
 
     def context_inject_hook(self, query: str):
-        print(
-            f"{COLOR_DEFAULT}[HOOK] UserPromtSubmit: working in {self.env.workDir} {COLOR_DEFAULT}"
+        log_info(
+            "hook", f"UserPromptSubmit: working in {self.env.workDir}"
         )
         return None
 
@@ -84,7 +84,7 @@ class Hooks:
                 for block in message.get("content"):
                     if isinstance(block, dict) and block.get("type") == "tool_result":
                         tool_count += 1
-        print(
-            f"{COLOR_DEFAULT}[HOOK] Stop: session used {tool_count} tool calls {COLOR_DEFAULT}"
+        log_info(
+            "hook", f"Stop: session used {tool_count} tool calls"
         )
         return None

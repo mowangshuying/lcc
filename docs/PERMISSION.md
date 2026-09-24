@@ -1,6 +1,6 @@
 # Permission 技术文档
 
-> 对应源码：`permission.py`（本仓库当前版本 80 行）
+> 对应源码：`permission.py`（本仓库当前版本 81 行）
 > 状态：引擎完整，**已接入主循环**（`hooks.py` 实例化并注册为 PreToolUse
 > 第一顺位回调，接线细节见 §6）
 
@@ -25,7 +25,7 @@
 
 `Permission()` 无参构造，实例化时一次性构建全部规则，
 **无外部配置文件、无热重载**（规则是实例属性，改规则 = 改代码）。
-例外：`DENY_LIST` 是**类级常量**（`permission.py:7`），不随实例重建，
+例外：`DENY_LIST` 是**类级常量**（`permission.py:8`），不随实例重建，
 且为全仓硬禁命令的**单一事实源**——`Permission.check_deny_list` 与
 `ToolsManager.run_bash` 共用同一份（见 §7）。
 
@@ -73,13 +73,16 @@
 check_permission(block)
 ├─ block.name == "bash"?
 │    └─ check_deny_list：任一 DENY_LIST 项是 command 的子串?
-│         命中 → 红字打印，返回 "Permission denied by deny list"（不问人）
+│         命中 → log_error 红字打 stderr（`[permission] ...`，permission.py:72），
+│              返回 "Permission denied by deny list"（不问人）
 ├─ check_rules：遍历 PERMISSION_RULES，
 │    tool_name 在 rule["tools"] 且 rule["check"](args) 为 True?
-│         命中 → ask_user 终端黄字询问（打印工具名+完整参数）：
-│              input("Allow? [Y/N]") → strip().lower()
+│         命中 → ask_user 询问：先 log_warn 黄字两行——reason 与
+│              `Tool: name(args)`（permission.py:60-61，首行前置空行），
+│              再 input("Allow? [Y/N]")（提示语黄色，:62）→ strip().lower()
 │              "y" / "yes" → 放行，继续往下
-│              其他一切输入（含空回车）→ 返回 "Permission denied by user"
+│              其他一切输入（含空回车）→ log_error 红字（:79）并
+│              返回 "Permission denied by user"
 └─ 都没命中 → 返回 None（放行）
 ```
 
@@ -88,15 +91,15 @@ check_permission(block)
 - `Hooks.__init__` 实例化唯一 `Permission`（hooks.py:9），`permission_hook`
   注册为 PreToolUse 的**第一个**回调（hooks.py:18），排在
   `log_before_use_tool_hook` 之前；`trigger_hooks` 顺序执行、首个非 None
-  短路（hooks.py:27-32）→ 被拦截的调用连 `[HOOK]` 日志都不会打印；
-- 消费方 `ToolsManager.execute_tool`（tools_manager.py:322-324）：
+  短路（hooks.py:27-32）→ 被拦截的调用连 `[hook]` 日志都不会打印；
+- 消费方 `ToolsManager.execute_tool`（tools_manager.py:323-325）：
   PreToolUse 返回非空即 `return str(blocked)`——handler 不执行，拒绝文本
   作为 tool_result 回填给模型，**且 PostToolUse 整条链都不触发**；
-- 两个入口共用同一条拦截链：主循环 `loop.py:169` 与子代理
-  `tools_manager.py:598` 都调 `execute_tool`，走同一个 `self.hooks` →
+- 两个入口共用同一条拦截链：主循环 `loop.py:170` 与子代理
+  `tools_manager.py:599` 都调 `execute_tool`，走同一个 `self.hooks` →
   同一个 `Permission`，**子代理不享受任何豁免**；
-- 实例化拓扑：全仓库 `Hooks()` 只在 `loop.py:16` 被 new **一次**，经
-  `ToolsManager(self.hooks)`（loop.py:21）注入后，主循环与工具执行共用
+- 实例化拓扑：全仓库 `Hooks()` 只在 `loop.py:17` 被 new **一次**，经
+  `ToolsManager(self.hooks)`（loop.py:22）注入后，主循环与工具执行共用
   同一条事件总线、同一个 `Permission`——历史上 ToolsManager 曾自建第二份
   `Hooks`（各带独立注册表）导致"loop 侧 permission 回调永不执行"的脑裂，
   现已消除（见 HOOKS.md §6）。
@@ -104,12 +107,12 @@ check_permission(block)
 ## 7. 纵深防御与不变量（改代码前必读）
 
 1. **规则 1 只是"问人"，硬线在 `safe_path`**：即使用户对越界路径答了 Y，
-   `run_read/run_write/run_edit` 内部的 `safe_path`（tools_manager.py:314）
+   `run_read/run_write/run_edit` 内部的 `safe_path`（tools_manager.py:315）
    仍会 `raise ValueError`，被 handler 的 `except Exception` 转成
    `Error:...` 文本。想把工作区真正放开，两处都得改；
  2. **`DENY_LIST` 单一事实源，两道校验共享同一份**：全仓只有
-    `permission.py:7` 这一处定义；`Permission` 链式检查（`check_deny_list`，
-    permission.py:39）与 `ToolsManager.run_bash`（直接 import `Permission`
+    `permission.py:8` 这一处定义；`Permission` 链式检查（`check_deny_list`，
+    permission.py:40）与 `ToolsManager.run_bash`（直接 import `Permission`
     后遍历 `Permission.DENY_LIST`）是同一清单的两个消费方，内容永不漂移。
     改硬禁命令只需改这一处。`run_bash` 这道闸**不经过** PreToolUse 链，
     即使 permission hook 被绕过/失效，它仍独立拦截同一批命令（防御纵深）；
@@ -145,4 +148,4 @@ check_permission(block)
 | `tools_manager.py` | 拒绝结果的消费方（`execute_tool`）；`run_bash` 绕过 hook 链直接遍历 `Permission.DENY_LIST`（§7.2）；`safe_path` 是文件工具的硬防线（§7.1） |
 | `env.py` | 围栏基准取 `Env().workDirPath`（= 进程 `Path.cwd()`，不是仓库位置） |
 | `loop.py` | 主循环与子代理共用同一拦截链（§6） |
-| `color.py` | 询问/拒绝的终端着色 |
+| `color.py` | 终端着色常量（询问/拒绝日志经 `log.py` 统一拼装；仅 `ask_user` 的 `Allow?` 提示语直接使用颜色常量，permission.py:62） |

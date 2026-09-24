@@ -18,14 +18,14 @@
 | `httpUrl` | `ANTHROPIC_BASE_URL` | `Anthropic(base_url=...)`；未设则 None（SDK 走官方端点） |
 | `modelId` | `MODEL_ID` | 主循环与子代理 `messages.create` 的 model 参数 |
 | `workDir` | `os.getcwd()`（str） | 系统提示词与 hook 打印里的位置描述（bash 子进程 cwd 用 `workDirPath`） |
-| `workDirPath` | `Path.cwd()` | **工作区围栏基准**：permission 规则 1、`safe_path`、glob root、bash 子进程 cwd、TaskManager 的 resolve 基准（`task_manager.py:31`）全都以它为界 |
+| `workDirPath` | `Path.cwd()` | **工作区围栏基准**：permission 规则 1、`safe_path`、glob root、bash 子进程 cwd、TaskManager 的 resolve 基准（`task_manager.py:32`）全都以它为界 |
 | `skillsDirPath` | `<cwd>/skills` | 传给 `SkillManager` 构造（SKILL_MANAGER.md §2） |
 | `transcriptDirPath` | `<cwd>/.lcc/transcripts` | 传给 `CompactManager`：对话归档 JSONL（COMPACT_MANAGER.md §3） |
 | `toolResultsDirPath` | `<cwd>/.lcc/task_outputs/tool-results` | 传给 `CompactManager`：大工具结果落盘 |
-| `memoryDirPath` | `<cwd>/.lcc/memory` | `MemoryManager` 自建使用（memory_manager.py:126、133，MEMORY_MANAGER.md） |
+| `memoryDirPath` | `<cwd>/.lcc/memory` | `MemoryManager` 自建使用（memory_manager.py:127、133，MEMORY_MANAGER.md） |
 | `memoryIndexPath` | `memoryDirPath / MEMORY.md` | 记忆索引文件路径（env.py:20），由 `MemoryManager` 读写 |
-| `taskDirPath` | `<cwd>/.lcc/task` | 传给 `TaskManager` 构造（tools_manager.py:256），任务 JSON 落盘目录（TASK_MANAGER.md §3） |
-| `tempDirPath` | `<cwd>/.lcc/temp` | 临时/试验文件目录（系统提示要求一次性文件写入此处，loop.py:42-44；由 `Env.__init__` 自动 mkdir） |
+| `taskDirPath` | `<cwd>/.lcc/task` | 传给 `TaskManager` 构造（tools_manager.py:257），任务 JSON 落盘目录（TASK_MANAGER.md §3） |
+| `tempDirPath` | `<cwd>/.lcc/temp` | 临时/试验文件目录（系统提示要求一次性文件写入此处，loop.py:43-45；由 `Env.__init__` 自动 mkdir） |
 
 `workDir` 与 `workDirPath` 是同一目录的两种形态（str / Path）：
 `workDir` 服务系统提示词与 hook 打印，`workDirPath` 服务围栏与
@@ -46,7 +46,7 @@ if os.getenv("ANTHROPIC_BASE_URL"):
    （`x-api-key`，即 SDK 稍后从环境变量自取的 `ANTHROPIC_API_KEY`），
    避免 bearer-token 与 api-key 同时发出被网关拒绝。
    **顺序依赖**：必须先建 `Env()` 再建 `Anthropic()` 客户端，SDK 是在
-     客户端构造时才读取环境变量的（loop.py:15→17、tools_manager.py:247→254
+       客户端构造时才读取环境变量的（loop.py:16→18、tools_manager.py:248→255
    都恰好满足，改动构造顺序会静默失效）。
 
 ## 4. 不是单例：一次启动会 new 八个
@@ -54,17 +54,17 @@ if os.getenv("ANTHROPIC_BASE_URL"):
 无单例模式，每个持有方自己 `Env()`：
 
 ```
-Loop.env (loop.py:15)
+Loop.env (loop.py:16)
 ├─ Hooks.env (hooks.py:8)    # 全进程唯一 Hooks 实例（HOOKS.md §6）
-│   └─ 其 Permission.env (permission.py:10)
-├─ MemoryManager.env (memory_manager.py:32)
-└─ ToolsManager.env (tools_manager.py:247)
-    ├─ 其 TaskManager.env (task_manager.py:26)
-    ├─ 其 BackgroundTasksManager.env (background_tasks_manager.py:12)
-    └─ 其 CronScheduler.env (cron_scheduler.py:22)
+│   └─ 其 Permission.env (permission.py:11)
+├─ MemoryManager.env (memory_manager.py:33)
+└─ ToolsManager.env (tools_manager.py:248)
+    ├─ 其 TaskManager.env (task_manager.py:27)
+    ├─ 其 BackgroundTasksManager.env (background_tasks_manager.py:13)
+    └─ 其 CronScheduler.env (cron_scheduler.py:23)
 ```
 
-（CompactManager 例外——目录由 loop.py:23-28 注入，不持有 Env。）
+（CompactManager 例外——目录由 loop.py:24-29 注入，不持有 Env。）
 
 后果：启动时 `load_dotenv` 执行 8 次（幂等，只有微小开销）；
 更重要的语义是**每个实例都是构造时刻的快照**——运行期改
@@ -118,9 +118,9 @@ Loop.env (loop.py:15)
 | `loop.py` | 建 Env → 建 client → 建 ToolsManager → 注入 CompactManager → 建 MemoryManager（顺序依赖见 §3.2） |
 | `tools_manager.py` | 持 Env；文件围栏与 bash 子进程 cwd 用 `workDirPath`，子代理系统提示词用 `workDir` |
 | `permission.py` | 规则 1 的围栏基准（PERMISSION.md §4） |
-| `skill_manager.py` | 不直接用 Env，目录经构造参数传入（tools_manager.py:255 取 `skillsDirPath`） |
+| `skill_manager.py` | 不直接用 Env，目录经构造参数传入（tools_manager.py:256 取 `skillsDirPath`） |
 | `compact_manager.py` | 两个产物目录路径的注入来源 |
-| `memory_manager.py` | 自带 `Env()` 实例（memory_manager.py:32），读 `memoryDirPath`/`memoryIndexPath` |
-| `task_manager.py` | 自带 `Env()` 实例（task_manager.py:26）；但落盘目录经构造参数传入（tools_manager.py:256 取 `taskDirPath`） |
-| `background_tasks_manager.py` | 自带 `Env()` 实例（background_tasks_manager.py:12），bash 子进程 cwd 取 `workDirPath` |
+| `memory_manager.py` | 自带 `Env()` 实例（memory_manager.py:33），读 `memoryDirPath`/`memoryIndexPath` |
+| `task_manager.py` | 自带 `Env()` 实例（task_manager.py:27）；但落盘目录经构造参数传入（tools_manager.py:257 取 `taskDirPath`） |
+| `background_tasks_manager.py` | 自带 `Env()` 实例（background_tasks_manager.py:13），bash 子进程 cwd 取 `workDirPath` |
 | `.gitignore` | 排除 `.env`、`/.lcc`（`.lcc/` 下全部运行时产物，见 §7） |

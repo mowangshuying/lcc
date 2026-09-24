@@ -4,6 +4,7 @@ from env import Env
 import yaml
 import json
 from anthropic import Anthropic
+from log import log_warn
 
 class MemoryManager:
     MEMORY_TYPES = ("user", "feedback", "project", "reference")
@@ -467,10 +468,10 @@ class MemoryManager:
                 stored += 1
 
             if stored:
-                print(f"\n\033[33m[Memory: stored {stored} records]\033[0m")
+                log_warn("memory", f"stored {stored} records", blank_before=True)
             return stored
         except Exception as error:
-            print(f"\n\033[33m[Memory extraction skipped: {error}]\033[0m")
+            log_warn("memory", f"extraction skipped: {error}", blank_before=True)
             return 0
             
         
@@ -569,11 +570,11 @@ class MemoryManager:
                 self.rebuild_memory_index()
                 raise
 
-            print(
-                f"\n\033[33m[Memory: consolidated {len(records)} "
-                f"to {len(consolidated)} records]\033[0m"
+            log_warn(
+                "memory",
+                f"consolidated {len(records)} to {len(consolidated)} records", blank_before=True
             )
             return len(consolidated)
         except Exception as error:
-            print(f"\n\033[33m[Memory consolidation skipped: {error}]\033[0m")
+            log_warn("memory", f"consolidation skipped: {error}", blank_before=True)
             return 0            

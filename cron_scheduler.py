@@ -5,6 +5,7 @@ from env import Env
 import os
 import json
 import secrets
+from log import log_error, log_info, log_warn
 
 @dataclass
 class CronJob:
@@ -164,7 +165,7 @@ class CronScheduler:
             if not isinstance(payload, list):
                 raise ValueError("expected a JSON list")
         except (OSError, json.JSONDecodeError, ValueError) as error:
-            print(f"[cron] could not load {self.env.durablePath.name}: {error}")
+            log_error("cron", f"could not load {self.env.durablePath.name}: {error}")
             return
         
         loaded = 0
@@ -183,7 +184,7 @@ class CronScheduler:
                         raise ValueError("prompt cannot be empty")
                     
                 except (TypeError, ValueError) as error:
-                    print(f"[cron] skipped invalid saved job: {error}")
+                    log_warn("cron", f"skipped invalid saved job: {error}")
                     continue
                 
                 self.scheduled_jobs[job.id] = job
@@ -191,7 +192,7 @@ class CronScheduler:
                     self.cron_queue.append(job)
                 loaded += 1
             if loaded:
-                print(f"[cron] loaded {loaded} durable job(s)")
+                log_info("cron", f"loaded {loaded} durable job(s)")
     
     
     def new_cron_id(self) -> str:
@@ -225,7 +226,7 @@ class CronScheduler:
             except Exception:
                 self.scheduled_jobs.pop(job.id, None)
                 raise
-        print(f"[cron] scheduled {job.id}: {cron} -> {job.prompt[:60]}")
+        log_info("cron", f"scheduled {job.id}: {cron} -> {job.prompt[:60]}")
         return job
     
     def cancel_job(self, job_id: str) -> str:
@@ -248,7 +249,7 @@ class CronScheduler:
                 self.scheduled_jobs[job_id] = job
                 self.cron_queue.extend(previous_queue)
                 raise
-        print(f"[cron] cancelled {job_id}")
+        log_info("cron", f"cancelled {job_id}")
         return f"Cancelled {job_id}"
     
     def _enqueue_due_job(self, job: CronJob, minute_marker: str | None = None):
@@ -279,9 +280,9 @@ class CronScheduler:
                     
                     if self._cron_matches(job.cron, moment):
                         self._enqueue_due_job(job, minute_marker)
-                        print(f"[cron] due {job.id}: {job.prompt[:60]}")
+                        log_info("cron", f"due {job.id}: {job.prompt[:60]}")
                 except Exception as error:
-                    print(f"[cron] could not enqueue {job.id}: {error}")
+                    log_error("cron", f"could not enqueue {job.id}: {error}")
                     
     def consume_cron_queue(self)-> list[CronJob]:
         with self.cron_lock:

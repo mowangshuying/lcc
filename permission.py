@@ -1,6 +1,7 @@
 import re
-from color import COLOR_CYAN, COLOR_DEFAULT, COLOR_RED, COLOR_YELLOW
+from color import COLOR_DEFAULT, COLOR_YELLOW
 from env import Env
+from log import log_error, log_warn
 from tool_names import BASH, EDIT_FILE, READ_FILE, WRITE_FILE
 class Permission:
     ### 硬编码禁止列表 总是禁止；单一事实源：Permission 链式检查与 ToolsManager.run_bash 共用本清单
@@ -56,9 +57,9 @@ class Permission:
 
 
     def ask_user(self, tool_name: str, args: dict, reason: str) -> str:
-        print(f"\n{COLOR_YELLOW}[permission]{reason}{COLOR_DEFAULT}")
-        print(f"    {COLOR_YELLOW}Tool: {tool_name}({args}){COLOR_DEFAULT}")
-        choice = input(f"    {COLOR_YELLOW}Allow? [Y/N]{COLOR_CYAN}").strip().lower()
+        log_warn("permission", reason, blank_before=True)
+        log_warn("permission", f"Tool: {tool_name}({args})")
+        choice = input(f"    {COLOR_YELLOW}Allow? [Y/N]{COLOR_DEFAULT}").strip().lower()
         if choice in ("y", "yes"):
             return "allow"
         return "deny"
@@ -68,13 +69,13 @@ class Permission:
         if block.name == BASH:
             reason = self.check_deny_list(block.input.get("command", ""))
             if reason:
-                print(f"{COLOR_RED}{reason}{COLOR_DEFAULT}")
+                log_error("permission", reason)
                 return reason
 
         reason = self.check_rules(block.name, block.input)
         if reason:
             decision = self.ask_user(block.name, block.input, reason)
             if decision == "deny":
-                print(f"{COLOR_RED}Permission denied by user")
+                log_error("permission", "Permission denied by user")
                 return "Permission denied by user"
         return None

@@ -28,6 +28,7 @@ python loop.py    # 启动目录即沙箱根；q / exit 退出
 | --- | --- |
 | `loop.py` | 主循环：用户输入 → 模型调用 → 工具执行 → 压缩/Hooks 接线（当前阶段 `s12`） |
 | `env.py` | `.env` 配置集中加载，供各模块共享 |
+| `log.py` | 统一控制台日志输出：分级 info/warn/error、域 tag、颜色拼装单一事实源 |
 | `tools_manager.py` | 工具注册与执行，内置子代理（`task`）独立执行循环 |
 | `background_tasks_manager.py` | 后台 bash 任务：异步启动、结果收割与 `<task_notification>` 注入 |
 | `cron_scheduler.py` | 定时任务调度：cron 表达式匹配、到期投递队列与 durable 落盘 |

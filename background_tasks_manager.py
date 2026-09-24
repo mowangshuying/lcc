@@ -6,6 +6,7 @@ import os
 import time
 import atexit
 from tool_names import BASH
+from log import log_info
 
 class BackgroundTasksManager:
     def __init__(self):
@@ -43,7 +44,7 @@ class BackgroundTasksManager:
             with self.lock:
                 self.tasks.pop(task_id, None)
             raise
-        print(f"[background] started {task_id} {command[:60]}")
+        log_info("bg", f"started {task_id} {command[:60]}")
         return task_id
         
             
@@ -82,7 +83,7 @@ class BackgroundTasksManager:
         
         notifications = []
         for task_id, task, result in ready:
-            print(f"[background] collected {task_id}: {task['status']}")
+            log_info("bg", f"collected {task_id}: {task['status']}")
             notifications.append(
                 f"<task_notification>\n"
                 f"  <task_id>{task_id}</task_id>\n"

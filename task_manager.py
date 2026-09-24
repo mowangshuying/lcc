@@ -6,6 +6,7 @@ import re
 import secrets
 import json
 from datetime import datetime
+from log import log_info
 
 @dataclass
 class Task:
@@ -190,7 +191,7 @@ class TaskManager:
         task.status = "in_progress"
         self.save(task)
 
-        print(f"[claim] {task.subject} -> in_progress (owner: {owner})")
+        log_info("task", f"claim {task.subject} -> in_progress (owner: {owner})")
         return f"Claimed {task.id} {task.subject}"
 
 
@@ -217,10 +218,10 @@ class TaskManager:
             if candidate.status == "pending" and candidate.blockedBy and candidate.id not in ready_before and self.can_start(candidate.id):
                 unblocked.append(candidate.subject)
 
-        print(f"[complete] {task.subject}")
+        log_info("task", f"complete {task.subject}")
         message = f"Completed {task.id} ({task.subject})"
         if unblocked:
             message += f"\nUnblocked: {', '.join(unblocked)}"
-            print(f"[unblocked] {', '.join(unblocked)}")
+            log_info("task", f"unblocked {', '.join(unblocked)}")
 
         return message             

@@ -13,10 +13,10 @@
 
 | 事件 | 回调（按注册顺序） | 参数 | 返回值如何被消费 |
 |---|---|---|---|
-| `UserPromptSubmit` | `context_inject_hook` | `query: str` | **丢弃**（loop.py:246 不接收返回值） |
-| `PreToolUse` | `permission_hook` → `log_before_use_tool_hook` | `block` | **非 None = 拦截**：execute_tool 直接把它当 tool_result 返回（tools_manager.py:322-324），handler 与 PostToolUse 全部跳过 |
-| `PostToolUse` | `log_after_use_tool_hook` → `large_output_hook` | `block, output` | **丢弃**（tools_manager.py:350 不接收返回值） |
-| `Stop` | `summary_hook` | `messages: list` | 接收为 `force`：非 None 会被 append 成 user 消息强制对话继续（唯一触发点 loop.py:151-154，主循环回合出口）。当前唯一 Stop 回调恒返回 None，**机制存在但无人使用** |
+| `UserPromptSubmit` | `context_inject_hook` | `query: str` | **丢弃**（loop.py:247 不接收返回值） |
+| `PreToolUse` | `permission_hook` → `log_before_use_tool_hook` | `block` | **非 None = 拦截**：execute_tool 直接把它当 tool_result 返回（tools_manager.py:323-325），handler 与 PostToolUse 全部跳过 |
+| `PostToolUse` | `log_after_use_tool_hook` → `large_output_hook` | `block, output` | **丢弃**（tools_manager.py:351 不接收返回值） |
+| `Stop` | `summary_hook` | `messages: list` | 接收为 `force`：非 None 会被 append 成 user 消息强制对话继续（唯一触发点 loop.py:152-155，主循环回合出口）。当前唯一 Stop 回调恒返回 None，**机制存在但无人使用** |
 
 四个事件里真正能"改变行为"的只有 PreToolUse；Stop 的"强制续话"是预留能力。
 
@@ -40,12 +40,12 @@ def trigger_hooks(self, event, *args):
 
 | 回调 | 实际行为 | 备注 |
 |---|---|---|
-| `context_inject_hook` | 打印一行"working in <workDir>" | **名不副实**：不注入任何上下文，恒 None。真正的上下文注入（skills 目录）发生在 loop 的 `build_system_prompt`，与本回调无关 |
+| `context_inject_hook` | `log_info`：`[hook] UserPromptSubmit: working in <workDir>`（hooks.py:75-77） | **名不副实**：不注入任何上下文，恒 None。真正的上下文注入（skills 目录）发生在 loop 的 `build_system_prompt`，与本回调无关 |
 | `permission_hook` | 转发 `Permission.check_permission(block)` | 全事件体系里唯一会产生非 None 拦截的回调，详见 PERMISSION.md |
-| `log_before_use_tool_hook` | `[HOOK] name([前两个参数str][:60])` | 恒 None |
-| `log_after_use_tool_hook` | 按工具名（`tool_names` 常量比较）拼一行 info（bash→command、read/write/edit→path、glob→pattern、todo_write→固定文案、task→prompt），再**全文打印 output** | 未列举的工具（如 `load_skill`）info 为空串；恒返回 None（隐式） |
-| `large_output_hook` | `len(str(output)) > 100000` 时打一条日志 | **只打日志不落盘**；大结果落盘职责在 CompactManager（见 COMPACT_MANAGER.md §9）；恒 None |
-| `summary_hook` | 遍历 messages 统计 `tool_result` 块总数并打印 | 恒 None |
+| `log_before_use_tool_hook` | `log_info`：`[hook] name([前两个参数str][:60])`（hooks.py:38-41） | 恒 None |
+| `log_after_use_tool_hook` | 按工具名（`tool_names` 常量比较）拼一行 info（bash→command、read/write/edit→path、glob→pattern、todo_write→固定文案、task→prompt），`log_info` 两行：`[hook] tool_use: name - info` 与 `[hook] tool_result:` + 全文 output（hooks.py:46-65） | 未列举的工具（如 `load_skill`）info 为空串；恒返回 None（隐式） |
+| `large_output_hook` | `len(str(output)) > 100000` 时 `log_warn` 一条黄色 `[hook] Large output from name: N chars`（hooks.py:68-71） | **只打日志不落盘**；大结果落盘职责在 CompactManager（见 COMPACT_MANAGER.md §9）；恒 None |
+| `summary_hook` | 遍历 messages 统计 `tool_result` 块总数，`log_info`：`[hook] Stop: session used N tool calls`（hooks.py:80-89） | 恒 None |
 
 ## 5. block 形态约定
 
@@ -59,17 +59,17 @@ hooks 这里**不做**双形态处理——现网调用链全部来自 SDK 响�
 ## 6. 接线方式：全进程唯一一条事件总线
 
 ```
-loop.py:16   self.hooks = Hooks()              # 全进程唯一实例（唯一 Hooks() 构造点）
-loop.py:21   self.toolsManager = ToolsManager(self.hooks)  # 构造函数注入
-tools_manager.py:246 def __init__(self, hooks: Hooks): ... # 声明式接收
-tools_manager.py:253 self.hooks = hooks                    # 只引用，不自建
+loop.py:17   self.hooks = Hooks()              # 全进程唯一实例（唯一 Hooks() 构造点）
+loop.py:22   self.toolsManager = ToolsManager(self.hooks)  # 构造函数注入
+tools_manager.py:247 def __init__(self, hooks: Hooks): ... # 声明式接收
+tools_manager.py:254 self.hooks = hooks                    # 只引用，不自建
 ```
 
 - 主循环与 ToolsManager 引用**同一个** Hooks 对象——注册表只有一份，
   `UserPromptSubmit`/`PreToolUse`/`PostToolUse`/`Stop` 四类事件都走这条总线；
-- 触发点全景：`UserPromptSubmit`（loop.py:246）、主循环 `Stop`（loop.py:151）、
-  `PreToolUse`（tools_manager.py:322）、`PostToolUse`（tools_manager.py:350）；
-  子代理工具执行复用 `run_subagent → execute_tool`（tools_manager.py:598），
+- 触发点全景：`UserPromptSubmit`（loop.py:247）、主循环 `Stop`（loop.py:152）、
+  `PreToolUse`（tools_manager.py:323）、`PostToolUse`（tools_manager.py:351）；
+  子代理工具执行复用 `run_subagent → execute_tool`（tools_manager.py:599），
   同样经过这条总线的 Pre/PostToolUse；
 - `Stop` 归属裁决：**会话停止事件只由主循环出口触发一次**。历史上
   `run_subagent` 的最终回答分支复制了同样的 Stop 触发，语义是"子代理回合
@@ -112,6 +112,6 @@ tools_manager.py:253 self.hooks = hooks                    # 只引用，不自�
 |---|---|
 | `permission.py` | PreToolUse 首位回调的委托对象 |
 | `tools_manager.py` | 注入式消费方（`__init__` 接收 hooks 参数）；`execute_tool` 是 Pre/PostToolUse 的唯一触发器（含子代理） |
-| `loop.py` | 唯一持有者与创建方（loop.py:16），并在 loop.py:21 注入 ToolsManager；触发 UserPromptSubmit 与主循环 Stop |
+| `loop.py` | 唯一持有者与创建方（loop.py:17），并在 loop.py:22 注入 ToolsManager；触发 UserPromptSubmit 与主循环 Stop |
 | `env.py` | `Hooks.__init__` 自建一个 `Env()` 与一个 `Permission()`（hooks.py:8-9），随唯一实例各一份 |
 | `compact_manager.py` | `large_output_hook` 与 ① `tool_result_budget` 职责重叠但互不感知（COMPACT_MANAGER.md §9） |

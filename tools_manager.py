@@ -15,6 +15,7 @@ from background_tasks_manager import BackgroundTasksManager
 from cron_scheduler import CronScheduler
 from permission import Permission
 from tool_names import BASH, READ_FILE, WRITE_FILE, EDIT_FILE, GLOB, TODO_WRITE, TASK, LOAD_SKILL, COMPACT, CREATE_TASK, UPDATE_TASK, LIST_TASKS, GET_TASK, CLAIM_TASK, COMPLETE_TASK, SCHEDULE_CRON, LIST_CRONS, CANCEL_CRON
+from log import log_info, log_warn
 
 
 class ToolsManager:
@@ -344,7 +345,7 @@ class ToolsManager:
                 ### 同时剔除该参数，避免 handler 收到未知关键字
                 tool_input = dict(block.input)
                 if tool_input.pop("run_in_background", False) and not allow_background:
-                    print("[background] not allowed in this context, running in foreground")
+                    log_warn("bg", "not allowed in this context, running in foreground")
                 output = handler(**tool_input)
 
         self.hooks.trigger_hooks("PostToolUse", block, output)
@@ -450,7 +451,7 @@ class ToolsManager:
             file_path.write_text(content, encoding="utf-8")
             return f"Wrote {len(content)} bytes to {path}"
         except Exception as e:
-            return f"Error{e}"
+            return f"Error: {e}"
 
     ### edit_file
     def run_edit(self, path: str, old_string: str, new_string: str) -> str:
@@ -612,13 +613,13 @@ class ToolsManager:
 
     def run_create_task(self, subject: str, description: str = "") -> str:
         task = self.taskManager.create_task(subject, description)
-        print(f"[Create] {task.subject}")
+        log_info("task", f"create {task.subject}")
         return f"Created {task.id}: {task.subject}"
 
     def run_update_task(self, task_id: str, addBlockedBy: list[str]) -> str:
         task = self.taskManager.update_task(task_id, addBlockedBy)
         dependencies = ", ".join(task.blockedBy) or "(none)"
-        print(f"[update] {task.subject} blockedBy: {dependencies}")
+        log_info("task", f"update {task.subject} blockedBy: {dependencies}")
         return f"Updated {task.id} blockedBy: {dependencies}"
 
     def run_list_tasks(self) -> str:

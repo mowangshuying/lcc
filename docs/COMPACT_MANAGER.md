@@ -1,6 +1,6 @@
 # CompactManager 技术文档
 
-> 对应源码：`compact_manager.py`（本仓库当前版本 391 行）
+> 对应源码：`compact_manager.py`（本仓库当前版本 392 行）
 > 状态：引擎完整，**已接入主循环**（`loop.py`，接线细节见 §10）
 
 ## 1. 它解决什么问题

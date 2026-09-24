@@ -9,6 +9,7 @@ from tool_names import COMPACT, TODO_WRITE
 import queue
 import sys
 import threading
+from log import log_info
 class Loop:
     MAX_REACTIVE_RETRIES = 1
     def __init__(self):
@@ -99,7 +100,7 @@ class Loop:
                     "role": "user",
                     "content": blocks,
                 })
-        print("[Background notifications]" + "\n".join(notifications))
+        log_info("bg", "notifications\n" + "\n".join(notifications))
         return len(notifications)
         
 
@@ -250,7 +251,7 @@ class Loop:
                 def deliver(fired):
                     for job in fired:
                         history.append({"role": "user", "content": f"[Scheduled] {job.prompt}"})
-                        print(f"[cron] delivered {job.id}: {job.prompt[:60]}")
+                        log_info("cron", f"delivered {job.id}: {job.prompt[:60]}")
                     self._run_turn(history, "\n".join(job.prompt for job in fired))
                 self.cron.run_delivery(deliver)
         self.cron.stop_runtime_threads()

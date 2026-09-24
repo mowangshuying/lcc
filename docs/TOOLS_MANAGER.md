@@ -1,7 +1,7 @@
 # ToolsManager 技术文档
 
-> 对应源码：`tools_manager.py`（本仓库当前版本 680 行）
-> 状态：完整，**已接入主循环**（`loop.py:21` 构造、`loop.py:169` 执行；
+> 对应源码：`tools_manager.py`（本仓库当前版本 681 行）
+> 状态：完整，**已接入主循环**（`loop.py:22` 构造、`loop.py:170` 执行；
 > 子代理执行循环内置于本类 `run_subagent`；bash 后台任务委托 `backgroundTasksManager`，
 > 详见 BACKGROUND_TASKS_MANAGER.md）
 
@@ -73,7 +73,7 @@ EDIT_FILE = {
 }
 ```
 
-### 2.3 十五工具参数总表
+### 2.3 十八工具参数总表
 
 | 工具 | 参数（类型） | 一句话语义 |
 |---|---|---|
@@ -92,6 +92,9 @@ EDIT_FILE = {
 | `get_task` | `task_id` string（必填） | 单任务全文 JSON |
 | `claim_task` | `task_id` string（必填） | 认领 pending 且已解除依赖的任务 |
 | `complete_task` | `task_id` string（必填） | 完成本代理已认领的任务 |
+| `schedule_cron` | `cron` string（必填）；`prompt` string（必填）；`recurring` boolean（可选，默认 true）；`durable` boolean（可选，默认 true） | 5 段 cron 表达式定时投递 prompt（CRON_SCHEDULER.md） |
+| `list_crons` | 无（`properties: {}`） | 列全部定时任务（id/cron/prompt/频率/持久化） |
+| `cancel_cron` | `job_id` string（必填） | 按 ID 取消定时任务 |
 
 约束的不对称是现状（不是 bug，但改之前要心里有数）：
 
@@ -132,14 +135,14 @@ EDIT_FILE = {
 
 ### 2.6 可见性：主循环 18 个 vs 子代理 5 个
 
-`subTools`（299-305）只收 `bash`/`read_file`/`write_file`/`edit_file`/`glob`
+`subTools`（300-306）只收 `bash`/`read_file`/`write_file`/`edit_file`/`glob`
 五个通用文件工具；其余 13 个（todo_write、task、load_skill、compact、6 个
 任务依赖工具与 3 个 cron 工具）主循环独享——防递归 fork、拦截语义只存在于主循环、`.lcc/task/`
 看板归主代理（§10 不变量 5）。
 
-子代理的 `bash` 用的是 `sub_bash_info()`（357-360）而非 `bash_info()`：`deepcopy`
+子代理的 `bash` 用的是 `sub_bash_info()`（358-361）而非 `bash_info()`：`deepcopy`
 主 `BASH` 后 `pop("run_in_background")`——**从 schema 层就不给子代理后台参数**，
-与 §7 `run_subagent` 的 `allow_background=False`（598）构成双重禁令
+与 §7 `run_subagent` 的 `allow_background=False`（599）构成双重禁令
 （BACKGROUND_TASKS_MANAGER.md §9/§12）。
 
 ## 3. 工具注册总览
@@ -177,72 +180,72 @@ handler——`compact` 仍是唯一"模型可见、但路由表查无此人"的�
 
 ## 4. 构造与依赖
 
-`ToolsManager(hooks)` 构造函数注入唯一 Hooks（loop.py:21 传入 loop.py:16 创建
+`ToolsManager(hooks)` 构造函数注入唯一 Hooks（loop.py:22 传入 loop.py:17 创建
 的实例），其余依赖内部自建：
 
 | 成员 | 来源 | 说明 |
 |---|---|---|
 | `env` | `Env()` | 第 2 个 Env 实例（ENV.md §4） |
 | `subSystemPrompt` | 硬编码 | "coding agent at {workDir}...return a concise final answer" |
-| `hooks` | 构造参数（:246 声明，:253 引用） | **全进程唯一 Hooks 实例**（loop.py:16 创建、loop.py:21 注入），Pre/PostToolUse 都归它管（HOOKS.md §6） |
-| `client` | `Anthropic(base_url=...)` | 仅子代理自用；主循环另有自己的 client（loop.py:17） |
+| `hooks` | 构造参数（:247 声明，:254 引用） | **全进程唯一 Hooks 实例**（loop.py:17 创建、loop.py:22 注入），Pre/PostToolUse 都归它管（HOOKS.md §6） |
+| `client` | `Anthropic(base_url=...)` | 仅子代理自用；主循环另有自己的 client（loop.py:18） |
 | `skillManager` | `SkillManager(env.skillsDirPath)` | 构造即扫描技能目录（SKILL_MANAGER.md） |
-| `taskManager` | `TaskManager(env.taskDirPath)` | 6 个任务依赖工具的共享实例（256，TASK_MANAGER.md） |
-| `backgroundTasksManager` | `BackgroundTasksManager()` | 后台 bash 任务引擎（257）；**全库唯一实例**，`execute_tool` 的后台分支与 `run_bash` 前台共用它，`Loop` 经 `self.toolsManager` 复用它收结果（loop.py:76，BACKGROUND_TASKS_MANAGER.md） |
-| 4 张列表 | 260-312 | `tools`(260-279) / `toolsHandlers`(280-298) / `subTools`(299-305) / `subToolsHandlers`(306-312) |
+| `taskManager` | `TaskManager(env.taskDirPath)` | 6 个任务依赖工具的共享实例（257，TASK_MANAGER.md） |
+| `backgroundTasksManager` | `BackgroundTasksManager()` | 后台 bash 任务引擎（258）；**全库唯一实例**，`execute_tool` 的后台分支与 `run_bash` 前台共用它，`Loop` 经 `self.toolsManager` 复用它收结果（loop.py:77，BACKGROUND_TASKS_MANAGER.md） |
+| 4 张列表 | 261-313 | `tools`(261-280) / `toolsHandlers`(281-299) / `subTools`(300-306) / `subToolsHandlers`(307-313) |
 
-`MAX_SUBAGENT_TURNS = 50`（类常量，244 行）。除 `hooks` 外全部依赖**不接受注入**，测试替身只能事后覆写属性。
+`MAX_SUBAGENT_TURNS = 50`（类常量，245 行）。除 `hooks` 外全部依赖**不接受注入**，测试替身只能事后覆写属性。
 
-## 5. execute_tool：唯一闸门入口（321-351）
+## 5. execute_tool：唯一闸门入口（322-352）
 
 ```
 execute_tool(block, handlers, allow_background=True)
-├─ trigger PreToolUse → 非 None？ 直接 return str(blocked)   （322-324）
+├─ trigger PreToolUse → 非 None？ 直接 return str(blocked)   （323-325）
 │     （handler 不执行、后台不启动、PostToolUse 也不触发——PERMISSION.md §6）
-├─ allow_background 且 should_run_background(name, input)？   （326）
+├─ allow_background 且 should_run_background(name, input)？   （327）
 │     真（后台分支，仅主循环 bash + run_in_background=true）：
-│        task_id = start_background_task(block)               （328）
-│        output = "[Background task {id} started] ...later turn."（329-332）
-│        启动异常 → output = "[Background task start error] {e}"（333-334）
+│        task_id = start_background_task(block)               （329）
+│        output = "[Background task {id} started] ...later turn."（330-333）
+│        启动异常 → output = "[Background task start error] {e}"（334-335）
 │     假（前台分支）：
 │        handler = handlers.get(name)
-│           查无 → output = "Unknown:{name}"                  （340-341，仍走 PostToolUse）
+│           查无 → output = "Unknown:{name}"                  （341-342，仍走 PostToolUse）
 │           有 handler →
-│              tool_input = dict(block.input)                 （345）
+│              tool_input = dict(block.input)                 （346）
 │              pop("run_in_background", False) 且 allow_background=False
-│                    → 打印降级提示，照常前台执行             （346-347）
-│              output = handler(**tool_input)                 （348）
-└─ trigger PostToolUse(block, output)（返回值丢弃）→ return str(output)（350-351）
+│                    → 打印降级提示，照常前台执行             （347-348）
+│              output = handler(**tool_input)                 （349）
+└─ trigger PostToolUse(block, output)（返回值丢弃）→ return str(output)（351-352）
 ```
 
 关键语义：
 
-- **后台门控三条件**（326 + `should_run_background`）：① `allow_background`（主循环默认
+- **后台门控三条件**（327 + `should_run_background`）：① `allow_background`（主循环默认
   True；`run_subagent` 传 False）② 工具名是 `bash` ③ `input.get("run_in_background") is
   True`（严格布尔）。全满足才转后台，立即回占位 tool_result，真结果由 `Loop` 后续轮收割
   （BACKGROUND_TASKS_MANAGER.md §9/§10）；
 - **`run_in_background` 被"吸收"**：前台分支先 `dict(block.input)` 再
-  `pop("run_in_background", False)`（345-346），使 `run_bash(command)` 这类形参里没有它的
+  `pop("run_in_background", False)`（346-347），使 `run_bash(command)` 这类形参里没有它的
   handler **不会**因这个键而 `TypeError`；不允许后台却带了它 → 打印
-  `[background] not allowed in this context, running in foreground` 后前台执行（347）；
+  `[bg] not allowed in this context, running in foreground` 后前台执行（348）；
 - **错误即数据**：handler 返回值（含 `Error:...`、占位 `[Background task …]` 文本）原样成为
   tool_result 喂回模型；handler 内部约定自吞异常（§6）；
-- **裸调用仍在**（348）：除 `run_in_background` 外的其他 schema 外野参数、或漏 required
+- **裸调用仍在**（349）：除 `run_in_background` 外的其他 schema 外野参数、或漏 required
   参数 → `TypeError` **不被捕获**，一路炸穿主循环（§11.1）；
 - 同一批多个 `tool_use` 逐个顺序执行（调用方 for 循环），无并行。
 
 ## 6. Handler 明细
 
-### 6.1 run_bash（417-427）
+### 6.1 run_bash（418-428）
 
 - 危险命令检查直接遍历 `Permission.DENY_LIST`（`tools_manager.py:16` 显式
-  import；单一事实源定义在 `permission.py:7`：`rm -rf /`、`sudo`、`shutdown`、
+  import；单一事实源定义在 `permission.py:8`：`rm -rf /`、`sudo`、`shutdown`、
   `reboot`、`mkfs`、`dd if=`、`> /dev/`），命中返回
   `Error: Dangerous command blocked`（不弹确认）。该检查**不经过** PreToolUse
   hook 链，与 Permission 链式检查共享同一份清单，构成防御纵深且内容零漂移，
   详见 PERMISSION.md §7.2；
 - 危险检查之后**委托** `backgroundTasksManager.run_bash_process(command)` +
-  `format_bash_result(...)`（:426-427）——与后台任务是**同一条执行路径**
+   `format_bash_result(...)`（:427-428）——与后台任务是**同一条执行路径**
   （BACKGROUND_TASKS_MANAGER.md §6）：`subprocess.Popen(shell=True,
   cwd=env.workDirPath, start_new_session=True, capture…)` +
   `communicate(timeout=120)`，阻塞最长 120 秒，无流式输出；
@@ -256,14 +259,14 @@ execute_tool(block, handlers, allow_background=True)
 
 | | 行为 | 返回 |
 |---|---|---|
-| `run_read`（436-443） | 整文件 `read_text` 后 `splitlines`；给了 `limit` 且小于总行数 → 前 limit 行 + `... (N more lines)` | 文件内容；**未给 limit 不截断** |
-| `run_write`（446-453） | 先 `parent.mkdir(parents=True, exist_ok=True)` 再整写 | `Wrote N bytes to {path}` |
-| `run_edit`（456-465） | 读全文 → `old_string` 必须存在否则报错 → `replace(old, new, 1)` **只替换第一处** | `Edited {path}` |
+| `run_read`（437-444） | 整文件 `read_text` 后 `splitlines`；给了 `limit` 且小于总行数 → 前 limit 行 + `... (N more lines)` | 文件内容；**未给 limit 不截断** |
+| `run_write`（447-454） | 先 `parent.mkdir(parents=True, exist_ok=True)` 再整写 | `Wrote N bytes to {path}` |
+| `run_edit`（457-466） | 读全文 → `old_string` 必须存在否则报错 → `replace(old, new, 1)` **只替换第一处** | `Edited {path}` |
 
 三者的 `except Exception` 把一切（含 `safe_path` 的 `ValueError`）转成
-`Error:...` 文本；小瑕疵：`run_write` 的格式串是 `f"Error{e}"`，少了冒号。
+  `Error:...` 文本；`run_write` 的格式串是 `f"Error: {e}"`（第⑩轮日志规范化补齐了冒号）。
 
-### 6.3 run_glob（468-485）
+### 6.3 run_glob（469-486）
 
 - `glob.glob(pattern, root_dir=workDirPath, recursive=True)`；
 - 每条命中单独过 `resolve + is_relative_to` 围栏——symlink/绝对 pattern
@@ -271,7 +274,7 @@ execute_tool(block, handlers, allow_background=True)
 - `sorted` 稳定序，前 200 条，溢出追加
   `...(more matches omitted; narrow the pattern)`；空 → `(no matches)`。
 
-### 6.4 todo_write（488-544、547-552）
+### 6.4 todo_write（489-545、548-553）
 
 `update_todos` 纯校验+渲染，**无任何持久化副作用**——todo 列表的唯一
 事实来源就是模型消息流里这些格式化字符串：
@@ -284,41 +287,41 @@ execute_tool(block, handlers, allow_background=True)
 - 渲染 `[ ] / [>] / [x]` + 末尾 `(done/total completed)`；空列表 → `No todos`。
 
 外约：主循环连续 3 轮未调用 todo_write 时，往结果批里塞
-`<reminder>Update your todos.</reminder>`（loop.py:181-190）——提醒逻辑在
+`<reminder>Update your todos.</reminder>`（loop.py:182-191）——提醒逻辑在
 loop 不在本类。
 
-### 6.5 run_load_skill（609-610）
+### 6.5 run_load_skill（610-611）
 
 一行转发 `skillManager.load(name)`，无长度控制（SKILL_MANAGER.md §7）。
 
-### 6.6 任务依赖工具（613-653，细节见 TASK_MANAGER.md）
+### 6.6 任务依赖工具（614-654，细节见 TASK_MANAGER.md）
 
-6 个工具全部转发给 `taskManager`（256 行自建
+6 个工具全部转发给 `taskManager`（257 行自建
 `TaskManager(env.taskDirPath)`），本类只做薄包装：
 
 | 工具 | 实现 |
 |---|---|
-| `create_task` | `run_create_task`（613-616） |
-| `update_task` | `run_update_task`（618-622） |
-| `list_tasks` | `run_list_tasks`（624-644） |
-| `get_task` | `run_get_task`（646-647） |
-| `claim_task` | `run_claim_task`（649-650） |
-| `complete_task` | `run_complete_task`（652-653） |
+| `create_task` | `run_create_task`（614-617） |
+| `update_task` | `run_update_task`（619-623） |
+| `list_tasks` | `run_list_tasks`（625-645） |
+| `get_task` | `run_get_task`（647-648） |
+| `claim_task` | `run_claim_task`（650-651） |
+| `complete_task` | `run_complete_task`（653-654） |
 
 schema 定义与登记方式与前 9 个工具完全同构（参数总表见 §2.3，三处登记见
 §10 不变量 1），所以本节只记**行为差异**：
 
 - 全是薄包装：`run_claim_task`/`run_complete_task` 写死
-  `owner="agent"`（650、653）——没有第二方，认领即绑定；
+  `owner="agent"`（651、654）——没有第二方，认领即绑定；
 - `run_update_task` 的形参名 `addBlockedBy` 是 18 工具里唯一的 camelCase
-  （618），与 schema 属性名逐字一致（§10 不变量 3、§2.4），改哪头都得同步；
-- `run_list_tasks`（624-644）渲染 `[ ]/[>]/[x]` + status + owner +
+  （619），与 schema 属性名逐字一致（§10 不变量 3、§2.4），改哪头都得同步；
+- `run_list_tasks`（625-645）渲染 `[ ]/[>]/[x]` + status + owner +
    blockedBy，观感刻意贴近 `update_todos`（§6.4），但事实来源是
     `.lcc/task/` 目录里的 JSON 文件，不是消息流；
-- 6 个工具都**不在** `subTools`（299-305）——子代理碰不到任务体系，
+- 6 个工具都**不在** `subTools`（300-306）——子代理碰不到任务体系，
   与 §10 不变量 5 的收窄原则一致。
 
-## 7. task 与子代理（run_subagent，570-607）
+## 7. task 与子代理（run_subagent，571-608）
 
 ```
 messages = [{user: prompt}]                    ← 全新上下文，不带主对话历史
@@ -335,28 +338,28 @@ for _ in range(50):
 ```
 
 - **一次性问答**：主代理只见最终文本，看不到子代理中间过程；
-- 工具面收窄到 5 个（`subTools`，299-305，见 §2.6），因此拿不到
+- 工具面收窄到 5 个（`subTools`，300-306，见 §2.6），因此拿不到
   task/load_skill/todo_write/6 个任务依赖工具与 3 个 cron 工具（§6.6/CRON_SCHEDULER.md §8），
   也拿不到 compact 的 schema；
-- 子代理的 bash schema 是 `sub_bash_info`（357-360，已删
+- 子代理的 bash schema 是 `sub_bash_info`（358-361，已删
   `run_in_background` 属性），且工具执行显式传
-  `allow_background=False`（598）——schema 与路由双重禁止子代理起后台
+  `allow_background=False`（599）——schema 与路由双重禁止子代理起后台
   任务，误传参数会被吸收并降级前台执行（§5，
   BACKGROUND_TASKS_MANAGER.md §9）；
 - 子代理工具调用同样经过 **Pre/PostToolUse**（全进程唯一事件总线，构造注入，
   HOOKS.md §6）→ Permission 对孙调用一视同仁；
 - 子代理的 messages **不经 CompactManager**（无 prepare/无 reactive
   兜底），溢出只能靠 API 报错自毁；
-- `extract_text`（555-567）：只刮 `type=="text"` 块，无 text 块时返回
+- `extract_text`（556-568）：只刮 `type=="text"` 块，无 text 块时返回
   `(no summary)`；不检查 `stop_reason`——`max_tokens` 截断的半截回答
   只要没带 tool_use 就会被当最终答案返回。
 
 ## 8. compact：注册但不路由（特殊公民）
 
-- `COMPACT` schema 在 `self.tools`（130-141、登记 269）——模型可见可调；
+- `COMPACT` schema 在 `self.tools`（131-142、登记 270）——模型可见可调；
 - `toolsHandlers` **无** `compact` 项；主循环在分发前按 `tool_names.COMPACT`
-  常量拦截（loop.py:165-167），置位 `compact_requested`，回合工具结果 append 完后
-  调 `compactManager.compact_history` 整列表替换（loop.py:193-194）；
+  常量拦截（loop.py:166-168），置位 `compact_requested`，回合工具结果 append 完后
+  调 `compactManager.compact_history` 整列表替换（loop.py:194-195）；
 - 若子代理幻觉调用 compact：不在 `subTools`，但 `execute_tool` 仍会被调 →
   路由表查无 → `Unknown:compact`；
 - 配对语义与悬空 tool_use 分析见 COMPACT_MANAGER.md §10.3——**别给
@@ -372,9 +375,9 @@ if not path.is_relative_to(env.workDirPath): raise ValueError(...)
 - 这是**硬线**：不问人、不可被人工放行（与 permission 规则 1 的"问人"
   层互补，两层关系见 PERMISSION.md §7.1）；
 - 绝对路径参数会直接替换基准（`Path / "/abs"` 语义），随后被围栏判住；
-- 类内 `safe_path` 被定义了**两次**（314-318 与 429-433，内容逐字相同）：
-  Python 类体内后定义覆盖前者，314 那份是死代码。行为无差异，但改动时
-  只改 429 才生效——务必注意。
+- 类内 `safe_path` 被定义了**两次**（315-319 与 430-434，内容逐字相同）：
+  Python 类体内后定义覆盖前者，315 那份是死代码。行为无差异，但改动时
+  只改 430 才生效——务必注意。
 
 ## 10. 不变量（改代码前必读）
 
@@ -396,9 +399,9 @@ if not path.is_relative_to(env.workDirPath): raise ValueError(...)
 ## 11. 已知坑点
 
 1. **参数畸形 → 主循环崩溃**：模型漏传 required 或多传 schema 外的野参数，
-   `handler(**tool_input)`（348）抛 `TypeError`，`execute_tool` 与 loop 都不接
+   `handler(**tool_input)`（349）抛 `TypeError`，`execute_tool` 与 loop 都不接
    ——整个程序穿透退出。`run_in_background` 是唯一被前台分支吸收的参数
-   （345-346，见 §5），其余野参数不在吸收之列；schema 对模型只是软约束
+   （346-347，见 §5），其余野参数不在吸收之列；schema 对模型只是软约束
    （命名先验案底见 §2.4）；
 2. `run_read` 无 limit 时全文返回，大文件一口烧穿上下文，事后只能靠
    CompactManager 五级流水线救（跨模块互不感知，同 SKILL_MANAGER.md §7
@@ -413,20 +416,20 @@ if not path.is_relative_to(env.workDirPath): raise ValueError(...)
    隐式拼接，句号和空格间无分隔（`at D:\x. Complete...`），纯观感问题；
 6. 子代理 API 调用失败返回错误字符串而非抛出——主代理只看到一条普通
    tool_result，可能反复重试 `task`（无次数/熔断限制）；
-7. 每个主循环 `Loop` 实际存在两个 `Anthropic` 客户端（loop.py:17 与
-   tools_manager.py:254）；`Hooks` 只有一个实例（loop.py:16 创建后经构造
+7. 每个主循环 `Loop` 实际存在两个 `Anthropic` 客户端（loop.py:18 与
+   tools_manager.py:255）；`Hooks` 只有一个实例（loop.py:17 创建后经构造
    函数注入本类，HOOKS.md §6）——换 hook 只需注册到 `loop.hooks` 一处。
 
 ## 12. 与其他模块的关系
 
 | 模块 | 关系 |
 |---|---|
-| `loop.py` | 构造本类；`messages.create(tools=self.toolsManager.tools)`；非 compact 工具全部经 `execute_tool(block, toolsHandlers)`（loop.py:169）；每轮开头经本类自持的 `backgroundTasksManager` 收割后台结果并注入（loop.py:76，BACKGROUND_TASKS_MANAGER.md §10） |
+| `loop.py` | 构造本类；`messages.create(tools=self.toolsManager.tools)`；非 compact 工具全部经 `execute_tool(block, toolsHandlers)`（loop.py:170）；每轮开头经本类自持的 `backgroundTasksManager` 收割后台结果并注入（loop.py:77，BACKGROUND_TASKS_MANAGER.md §10） |
 | `hooks.py` | 唯一 Hooks 实例经构造函数注入（不自建）；Pre/PostToolUse 的宿主（Stop 仅由主循环触发，HOOKS.md §6） |
 | `permission.py` | 经 hooks 间接闸门所有工具执行（PERMISSION.md） |
 | `tool_names.py` | 零依赖常量叶子：本类 schema `"name"` 与两张路由表的键、以及 permission/hooks/loop/background_tasks_manager 的名字比较共用同一组常量（单一事实源） |
 | `skill_manager.py` | 持有唯一实例；`skills_catalog()` 被 loop 启动时调一次冻结进系统提示 |
-| `task_manager.py` | 持有唯一实例（256 自建）；6 个任务依赖工具转发给它（§6.6，TASK_MANAGER.md） |
-| `background_tasks_manager.py` | 持有唯一实例（257 自建）；`execute_tool` 后台分支接线（326-334）；`run_bash` 前台复用其 `run_bash_process`/`format_bash_result`（426-427）；子代理经 `sub_bash_info`（357-360）与 `allow_background=False`（598）双重禁用后台（BACKGROUND_TASKS_MANAGER.md） |
+| `task_manager.py` | 持有唯一实例（257 自建）；6 个任务依赖工具转发给它（§6.6，TASK_MANAGER.md） |
+| `background_tasks_manager.py` | 持有唯一实例（258 自建）；`execute_tool` 后台分支接线（327-335）；`run_bash` 前台复用其 `run_bash_process`/`format_bash_result`（427-428）；子代理经 `sub_bash_info`（358-361）与 `allow_background=False`（599）双重禁用后台（BACKGROUND_TASKS_MANAGER.md） |
 | `compact_manager.py` | `compact` schema 的"认领方"在主循环，本类只负责让它可见 |
 | `env.py` | 工作区与模型配置的取值来源（ENV.md） |
