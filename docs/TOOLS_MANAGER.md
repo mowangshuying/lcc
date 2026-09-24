@@ -1,6 +1,6 @@
 # ToolsManager 技术文档
 
-> 对应源码：`tools_manager.py`（本仓库当前版本 684 行）
+> 对应源码：`tools_manager.py`（本仓库当前版本 680 行）
 > 状态：完整，**已接入主循环**（`loop.py:22` 构造、`loop.py:170` 执行；
 > 子代理执行循环内置于本类 `run_subagent`；bash 后台任务委托 `backgroundTasksManager`，
 > 详见 BACKGROUND_TASKS_MANAGER.md）
@@ -173,20 +173,21 @@ handler——`compact` 仍是唯一"模型可见、但路由表查无此人"的�
 
 ## 4. 构造与依赖
 
-`ToolsManager()` 无参构造（loop.py:22），内部自建全部依赖：
+`ToolsManager(hooks)` 构造函数注入唯一 Hooks（loop.py:22 传入 loop.py:17 创建
+的实例），其余依赖内部自建：
 
 | 成员 | 来源 | 说明 |
 |---|---|---|
 | `env` | `Env()` | 第 2 个 Env 实例（ENV.md §4） |
 | `subSystemPrompt` | 硬编码 | "coding agent at {workDir}...return a concise final answer" |
-| `hooks` | `Hooks()` | **第 2 个 Hooks 实例**，Pre/PostToolUse 实际归它管（HOOKS.md §6） |
+| `hooks` | 构造参数（:246 声明，:253 引用） | **全进程唯一 Hooks 实例**（loop.py:17 创建、loop.py:22 注入），Pre/PostToolUse 都归它管（HOOKS.md §6） |
 | `client` | `Anthropic(base_url=...)` | 仅子代理自用；主循环另有自己的 client（loop.py:18） |
 | `skillManager` | `SkillManager(env.skillsDirPath)` | 构造即扫描技能目录（SKILL_MANAGER.md） |
 | `taskManager` | `TaskManager(env.taskDirPath)` | 6 个任务依赖工具的共享实例（222，TASK_MANAGER.md） |
 | `backgroundTasksManager` | `BackgroundTasksManager()` | 后台 bash 任务引擎（223）；**全库唯一实例**，`execute_tool` 的后台分支与 `run_bash` 前台共用它，`Loop` 经 `self.toolsManager` 复用它收结果（loop.py:77，BACKGROUND_TASKS_MANAGER.md） |
 | 4 张列表 | 225-271 | `tools`(225-241) / `toolsHandlers`(242-257) / `subTools`(258-264) / `subToolsHandlers`(265-271) |
 
-`MAX_SUBAGENT_TURNS = 50`（类常量，210 行）。全部依赖**不接受注入**，测试替身只能事后覆写属性。
+`MAX_SUBAGENT_TURNS = 50`（类常量，244 行）。除 `hooks` 外全部依赖**不接受注入**，测试替身只能事后覆写属性。
 
 ## 5. execute_tool：唯一闸门入口（280-310）
 
@@ -322,8 +323,8 @@ for _ in range(50):
         API 异常 → return "Error: subagent API call failed: {e}"（整个子代理弃疗）
     append assistant 原文
     无 tool_use：
-        trigger Stop（ ToolsManager 自己那份 hooks！）→ force 则续话，否则
         return extract_text(response.content)       ← 只回纯文本给主代理
+        （不触发 Stop：会话停止事件的唯一 owner 是主循环出口，HOOKS.md §6）
     有 tool_use：
         逐个 execute_tool(block, subToolsHandlers, allow_background=False) → tool_result 批 → append
 50 轮耗尽 → "Subagent stopped after 50 turns without a final answer."
@@ -338,8 +339,8 @@ for _ in range(50):
   `allow_background=False`（554）——schema 与路由双重禁止子代理起后台
   任务，误传参数会被吸收并降级前台执行（§5，
   BACKGROUND_TASKS_MANAGER.md §9）；
-- 子代理工具调用同样经过 **Pre/PostToolUse**（同实例 B 的 hooks）→
-  Permission 对孙调用一视同仁；
+- 子代理工具调用同样经过 **Pre/PostToolUse**（全进程唯一事件总线，构造注入，
+  HOOKS.md §6）→ Permission 对孙调用一视同仁；
 - 子代理的 messages **不经 CompactManager**（无 prepare/无 reactive
   兜底），溢出只能靠 API 报错自毁；
 - `extract_text`（507-519）：只刮 `type=="text"` 块，无 text 块时返回
@@ -407,15 +408,15 @@ if not path.is_relative_to(env.workDirPath): raise ValueError(...)
 6. 子代理 API 调用失败返回错误字符串而非抛出——主代理只看到一条普通
    tool_result，可能反复重试 `task`（无次数/熔断限制）；
 7. 每个主循环 `Loop` 实际存在两个 `Anthropic` 客户端（loop.py:18 与
-   tools_manager.py:220）和两个 `Hooks`（HOOKS.md §6）——改配置/换
-   hook 时别只想到一处。
+   tools_manager.py:254）；`Hooks` 只有一个实例（loop.py:17 创建后经构造
+   函数注入本类，HOOKS.md §6）——换 hook 只需注册到 `loop.hooks` 一处。
 
 ## 12. 与其他模块的关系
 
 | 模块 | 关系 |
 |---|---|
 | `loop.py` | 构造本类；`messages.create(tools=self.toolsManager.tools)`；非 compact 工具全部经 `execute_tool(block, toolsHandlers)`（loop.py:170）；每轮开头经本类自持的 `backgroundTasksManager` 收割后台结果并注入（loop.py:77，BACKGROUND_TASKS_MANAGER.md §10） |
-| `hooks.py` | 自建实例 B；Pre/PostToolUse、子代理 Stop 的宿主 |
+| `hooks.py` | 唯一 Hooks 实例经构造函数注入（不自建）；Pre/PostToolUse 的宿主（Stop 仅由主循环触发，HOOKS.md §6） |
 | `permission.py` | 经 hooks 间接闸门所有工具执行（PERMISSION.md） |
 | `skill_manager.py` | 持有唯一实例；`skills_catalog()` 被 loop 启动时调一次冻结进系统提示 |
 | `task_manager.py` | 持有唯一实例（222 自建）；6 个任务依赖工具转发给它（§6.6，TASK_MANAGER.md） |

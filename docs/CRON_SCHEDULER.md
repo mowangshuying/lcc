@@ -160,7 +160,7 @@ ack 内部（:292-333）：
 :258 `self.cronScheduler = CronScheduler()`）。
 
 **三个工具**（schema :211-241，注册进主循环 `tools` 列表 :276-278，handler 映射
-:295-297，实现 :660-682）：
+:295-297，实现 :656-678）：
 
 | 工具 | handler | 转调 | 返回 |
 |---|---|---|---|
@@ -196,7 +196,7 @@ loop.py:257  self.cron.stop_runtime_threads()         # 退出时
 
 1. **错误即值，不是异常**：`schedule_job` 用返回类型 `CronJob | str`、
    `validate_cron` 用 `str | None` 表达失败——调用方必须做类型判别
-   （`run_schedule_cron` :662 用 `isinstance(result, str)`），改成抛异常会同时
+   （`run_schedule_cron` :658 用 `isinstance(result, str)`），改成抛异常会同时
    打坏工具层和 `load_durable_jobs` 的复用逻辑；
 2. **业务失败不抛，持久化失败才抛**：schedule/cancel/ack/enqueue 的落盘异常都先
    回滚内存再 `raise`——注意这条异常会穿透 `execute_tool`（无 try）直达
@@ -241,5 +241,5 @@ loop.py:257  self.cron.stop_runtime_threads()         # 退出时
 | `tools_manager.py` | 持有唯一实例（:258）；`schedule_cron`/`list_crons`/`cancel_cron` 三个主 agent 工具的宿主 |
 | `loop.py` | 生命周期（`self.cron.start/stop_runtime_threads`，loop.py:239/:257）与投递回调（`deliver` 闭包）的提供方；consume/ack/restore 时序由本模块 `run_delivery` 自行执行；cron 事件与用户输入共用同一事件循环 |
 | `background_tasks_manager.py` | 概念对称但零耦合：那边是"发任务收结果"，这里是"到点发 prompt" |
-| `hooks.py` | **不经过任何 hook**：cron 注入的 `[Scheduled]` user 消息不触发 `UserPromptSubmit`；但 cron 工具调用照常走实例 B 的 `PreToolUse`/`PostToolUse`（HOOKS.md §6） |
+| `hooks.py` | **不经过任何 hook**：cron 注入的 `[Scheduled]` user 消息不触发 `UserPromptSubmit`；但 cron 工具调用照常走唯一事件总线的 `PreToolUse`/`PostToolUse`（HOOKS.md §6） |
 | `compact_manager.py` | 间接：cron 消息进入 history 后受常规压缩管辖 |

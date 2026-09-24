@@ -19,7 +19,7 @@ class Loop:
         
         self.stdinQueue: queue.Queue = queue.Queue()
         
-        self.toolsManager = ToolsManager()
+        self.toolsManager = ToolsManager(self.hooks)
         # self.system_prompt = self.build_system_prompt()
         self.compactManager = CompactManager(
             self.client,

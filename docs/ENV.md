@@ -46,28 +46,27 @@ if os.getenv("ANTHROPIC_BASE_URL"):
    （`x-api-key`，即 SDK 稍后从环境变量自取的 `ANTHROPIC_API_KEY`），
    避免 bearer-token 与 api-key 同时发出被网关拒绝。
    **顺序依赖**：必须先建 `Env()` 再建 `Anthropic()` 客户端，SDK 是在
-    客户端构造时才读取环境变量的（loop.py:16→18、tools_manager.py:213→220
+    客户端构造时才读取环境变量的（loop.py:16→18、tools_manager.py:247→254
    都恰好满足，改动构造顺序会静默失效）。
 
-## 4. 不是单例：一次启动会 new 九个
+## 4. 不是单例：一次启动会 new 八个
 
 无单例模式，每个持有方自己 `Env()`：
 
 ```
 Loop.env (loop.py:16)
-├─ Loop 的 Hooks.env (hooks.py:8)
+├─ Hooks.env (hooks.py:8)    # 全进程唯一 Hooks 实例（HOOKS.md §6）
 │   └─ 其 Permission.env (permission.py:10)
-├─ Loop 的 MemoryManager.env (memory_manager.py:32)
-└─ ToolsManager.env (tools_manager.py:213)
-    ├─ 其 Hooks.env (hooks.py:8)
-    │   └─ 其 Permission.env (permission.py:10)
+├─ MemoryManager.env (memory_manager.py:32)
+└─ ToolsManager.env (tools_manager.py:247)
     ├─ 其 TaskManager.env (task_manager.py:26)
-    └─ 其 BackgroundTasksManager.env (background_tasks_manager.py:12)
+    ├─ 其 BackgroundTasksManager.env (background_tasks_manager.py:12)
+    └─ 其 CronScheduler.env (cron_scheduler.py:22)
 ```
 
 （CompactManager 例外——目录由 loop.py:24-29 注入，不持有 Env。）
 
-后果：启动时 `load_dotenv` 执行 9 次（幂等，只有微小开销）；
+后果：启动时 `load_dotenv` 执行 8 次（幂等，只有微小开销）；
 更重要的语义是**每个实例都是构造时刻的快照**——运行期改
 `os.environ` 不会传导到已存在的任何 `Env()`。
 

@@ -89,21 +89,22 @@ check_permission(block)
   注册为 PreToolUse 的**第一个**回调（hooks.py:18），排在
   `log_before_use_tool_hook` 之前；`trigger_hooks` 顺序执行、首个非 None
   短路（hooks.py:27-32）→ 被拦截的调用连 `[HOOK]` 日志都不会打印；
-- 消费方 `ToolsManager.execute_tool`（tools_manager.py:281-283）：
+- 消费方 `ToolsManager.execute_tool`（tools_manager.py:322-324）：
   PreToolUse 返回非空即 `return str(blocked)`——handler 不执行，拒绝文本
   作为 tool_result 回填给模型，**且 PostToolUse 整条链都不触发**；
 - 两个入口共用同一条拦截链：主循环 `loop.py:170` 与子代理
-  `tools_manager.py:554` 都调 `execute_tool`，走同一个 `self.hooks` →
+  `tools_manager.py:598` 都调 `execute_tool`，走同一个 `self.hooks` →
   同一个 `Permission`，**子代理不享受任何豁免**；
-- 注意一个实例化细节：`Hooks` 在全仓库其实被 new 了**两次**
-   （`loop.py:17` 与 `tools_manager.py:219`，各带一个 `Permission`），但
-  PreToolUse 只从 tools_manager 那份触发；loop 自己那份的 permission
-  回调实际永不执行（详见 HOOKS.md §6）。
+- 实例化拓扑：全仓库 `Hooks()` 只在 `loop.py:17` 被 new **一次**，经
+  `ToolsManager(self.hooks)`（loop.py:22）注入后，主循环与工具执行共用
+  同一条事件总线、同一个 `Permission`——历史上 ToolsManager 曾自建第二份
+  `Hooks`（各带独立注册表）导致"loop 侧 permission 回调永不执行"的脑裂，
+  现已消除（见 HOOKS.md §6）。
 
 ## 7. 纵深防御与不变量（改代码前必读）
 
 1. **规则 1 只是"问人"，硬线在 `safe_path`**：即使用户对越界路径答了 Y，
-   `run_read/run_write/run_edit` 内部的 `safe_path`（tools_manager.py:381）
+   `run_read/run_write/run_edit` 内部的 `safe_path`（tools_manager.py:314）
    仍会 `raise ValueError`，被 handler 的 `except Exception` 转成
    `Error:...` 文本。想把工作区真正放开，两处都得改；
  2. **`DENY_LIST` 单一事实源，两道校验共享同一份**：全仓只有

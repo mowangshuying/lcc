@@ -243,14 +243,14 @@ class ToolsManager:
 
     MAX_SUBAGENT_TURNS = 50
 
-    def __init__(self):
+    def __init__(self, hooks: Hooks):
         self.env = Env()
         self.subSystemPrompt = (
             f"You are a coding agent at {self.env.workDir}."
             " Complete the given task, then return a concise final answer."
         )
         
-        self.hooks = Hooks()
+        self.hooks = hooks
         self.client = Anthropic(base_url=self.env.httpUrl)
         self.skillManager = SkillManager(self.env.skillsDirPath)
         self.taskManager  = TaskManager(self.env.taskDirPath)
@@ -590,10 +590,6 @@ class ToolsManager:
 
             ### 无工具调用即最终回答
             if len(tool_calls) == 0:
-                force = self.hooks.trigger_hooks("Stop", messages)
-                if force:
-                    messages.append({"role": "user", "content": force})
-                    continue
                 output =  self.extract_text(response.content)
                 return output
 
