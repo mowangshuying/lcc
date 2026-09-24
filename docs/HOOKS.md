@@ -13,10 +13,10 @@
 
 | 事件 | 回调（按注册顺序） | 参数 | 返回值如何被消费 |
 |---|---|---|---|
-| `UserPromptSubmit` | `context_inject_hook` | `query: str` | **丢弃**（loop.py:200 不接收返回值） |
+| `UserPromptSubmit` | `context_inject_hook` | `query: str` | **丢弃**（loop.py:247 不接收返回值） |
 | `PreToolUse` | `permission_hook` → `log_before_use_tool_hook` | `block` | **非 None = 拦截**：execute_tool 直接把它当 tool_result 返回（tools_manager.py:281-283），handler 与 PostToolUse 全部跳过 |
 | `PostToolUse` | `log_after_use_tool_hook` → `large_output_hook` | `block, output` | **丢弃**（tools_manager.py:309 不接收返回值） |
-| `Stop` | `summary_hook` | `messages: list` | 接收为 `force`：非 None 会被 append 成 user 消息强制对话继续（loop.py:144-147；子代理 tools_manager.py:545-548）。当前唯一 Stop 回调恒返回 None，**机制存在但无人使用** |
+| `Stop` | `summary_hook` | `messages: list` | 接收为 `force`：非 None 会被 append 成 user 消息强制对话继续（loop.py:152-155；子代理 tools_manager.py:545-548）。当前唯一 Stop 回调恒返回 None，**机制存在但无人使用** |
 
 四个事件里真正能"改变行为"的只有 PreToolUse；Stop 的"强制续话"是预留能力。
 
@@ -59,11 +59,11 @@ hooks 这里**不做**双形态处理——现网调用链全部来自 SDK 响�
 ## 6. 接线现状：一个进程里有两份 Hooks（必读）
 
 ```
-loop.py:16   self.hooks = Hooks()          # 实例 A
+loop.py:17   self.hooks = Hooks()          # 实例 A
 tools_manager.py:219  self.hooks = Hooks() # 实例 B（ToolsManager 构造函数内自建）
 ```
 
-- 实例 A 只被触发 `UserPromptSubmit`（loop.py:200）和主循环 `Stop`（loop.py:144）；
+- 实例 A 只被触发 `UserPromptSubmit`（loop.py:247）和主循环 `Stop`（loop.py:152）；
 - 实例 B 只被触发 `PreToolUse`/`PostToolUse`（tools_manager.py:281/309）
   和**子代理的** `Stop`（tools_manager.py:545）；
 - 两份实例各有独立的 hooks 注册表和独立的 `Permission()`——在 A 上注册的

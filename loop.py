@@ -27,6 +27,7 @@ class Loop:
             self.env.transcriptDirPath,
             self.env.toolResultsDirPath,
         )
+        self.cron = self.toolsManager.cronScheduler  # 单跳别名：cron 调度器句柄
 
         self.memoryManager = MemoryManager()
 
@@ -206,7 +207,7 @@ class Loop:
     def wait_for_cli_event(self) -> tuple[str, str | None]:
         prompt_visible = False
         while True:
-            if self.toolsManager.cronScheduler.has_cron_queue():
+            if self.cron.has_cron_queue():
                 return "cron", None
             
             if not prompt_visible:
@@ -224,47 +225,36 @@ class Loop:
             return "user", line.rstrip("\n")
         
 
+    def _run_turn(self, history, payload):
+        self.agent_loop(history, payload)
+        lst_content = history[-1]["content"]
+        if isinstance(lst_content, list):
+            for block in lst_content:
+                if getattr(block, "type", None) == "text":
+                    print(f"{COLOR_DEFAULT}text:{block.text}{COLOR_DEFAULT}")
+
     def run(self):
         history = []
         self._start_stdin_reader()
-        self.toolsManager.cronScheduler.start_runtime_threads()
+        self.cron.start_runtime_threads()
         while True:
             kind, payload = self.wait_for_cli_event()
-            
             if kind == "quit":
                 break
-            
             if kind == "user":
                 if payload.strip().lower() in ("q", "exit", ""):
                     break
-                
                 self.hooks.trigger_hooks("UserPromptSubmit", payload)
                 history.append({"role": "user", "content": payload})
-                
-                
-            if kind == "cron":
-                fired = self.toolsManager.cronScheduler.consume_cron_queue()
-                for job in fired:
-                    history.append({"role": "user", "content": f"[Scheduled] {job.prompt}"})
-                    print(f"[cron] delivered {job.id}: {job.prompt[:60]}")
-                payload = "\n".join(job.prompt for job in fired)
-
-            try:
-                self.agent_loop(history, payload)
-            except Exception:
-                if kind == "cron":
-                    self.toolsManager.cronScheduler.restore_cron_jobs(fired)
-                raise
-
-            if kind == "cron":
-                self.toolsManager.cronScheduler.acknowledge_cron_jobs(fired)
-
-            lst_content = history[-1]["content"]
-            if isinstance(lst_content, list):
-                for block in lst_content:
-                    if getattr(block, "type", None) == "text":
-                        print(f"{COLOR_DEFAULT}text:{block.text}{COLOR_DEFAULT}")
-        self.toolsManager.cronScheduler.stop_runtime_threads()
+                self._run_turn(history, payload)
+            else:  # cron：投递时序由 run_delivery 在调度器内部强制执行
+                def deliver(fired):
+                    for job in fired:
+                        history.append({"role": "user", "content": f"[Scheduled] {job.prompt}"})
+                        print(f"[cron] delivered {job.id}: {job.prompt[:60]}")
+                    self._run_turn(history, "\n".join(job.prompt for job in fired))
+                self.cron.run_delivery(deliver)
+        self.cron.stop_runtime_threads()
 
 
 ### 主函数

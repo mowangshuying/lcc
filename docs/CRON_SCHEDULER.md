@@ -1,7 +1,7 @@
 # CronScheduler 技术文档
 
-> 对应源码：`cron_scheduler.py`（本仓库当前版本 380 行）
-> 状态：完整，**已接入主循环与工具链**（三个 cron 工具 + 主循环注入闭环，见 §8）
+> 对应源码：`cron_scheduler.py`（本仓库当前版本 394 行）
+> 状态：完整，**已接入主循环与工具链**（三个 cron 工具 + 主循环注入闭环；at-least-once 投递时序收口在本模块 `run_delivery`，主循环只提供投递回调，见 §7/§8）
 
 ## 1. 它解决什么问题
 
@@ -56,6 +56,7 @@ class CronJob:
 | `start_runtime_threads()` | — | — | 幂等（`runtime_started` 守卫，:359-367）：先 `load_durable_jobs()`，再起 daemon 轮询线程 |
 | `stop_runtime_threads()` | — | — | `runtime_stop.set()` + `join(timeout=1)`（:369-375） |
 | `list_cron_jobs()` | — | 注册表快照 `list[CronJob]`，每次调用新列表（元素为原 job 引用）（:377-380） | 无——外部读注册表的**唯一公开入口**，调用方不再接触 `cron_lock`/`scheduled_jobs` |
+| `run_delivery(deliver)` | 投递回调 `deliver(fired)`（收 `consume_cron_queue` 返回的整批 job） | 本批大小 `int`；空批返回 `0` | at-least-once 协议的**唯一执行者**（:382-394）：`consume_cron_queue`（:385）→ 空批直接返回、不调回调（:386-387）→ 回调 `deliver(fired)`（:389）成功 → `acknowledge_cron_jobs`（:393）；回调抛**任何** `BaseException` → `restore_cron_jobs`（:391）后原样 `raise`（:392），绝不静默丢批 |
 
 ## 4. cron 表达式语义
 
@@ -116,20 +117,31 @@ def cron_scheduler_loop(self):                       # :355-357
   上一进程"已触发未确认"的任务重启后补投；
 - `durable=False` 的 session 任务只存在于内存，进程退出即消失。
 
-## 7. 投递协议（consume → ack / restore）
+## 7. 投递协议：run_delivery（consume → 回调 → ack / restore）
 
-主循环侧是一整套 **at-least-once** 交付协议（loop.py 侧调用点见 §8）：
+**at-least-once** 时序由 `run_delivery`（:382-394）在调度器内部强制执行，调用方
+（主循环，见 §8）只提供一个投递回调，拿不到也破坏不了协议骨架：
 
 ```
-consume_cron_queue()        # 整队取出并清空
-  → 注入 history，agent_loop 执行
-    ├─ 正常返回 → acknowledge_cron_jobs()
-    │     recurring: pending_delivery=False（等下一个匹配分钟再 fire）
-    │     one-shot:  从 scheduled_jobs 删除（删除动作在 ack，不在 consume）
-    │     durable 有变化 → 落盘；落盘失败 → 恢复被删 job、恢复 pending 标志、
-    │                      把不在队列中的 job 重新入队，再抛（:319-333）
-    └─ 抛异常   → restore_cron_jobs()：重新置 pending=True 并回灌队列（:335-349），
-                  异常继续上抛
+run_delivery(deliver):                  # cron_scheduler.py:382-394
+    fired = consume_cron_queue()        # 整队取出并清空（:385，实现 :286-290）
+    fired 为空 → return 0，不调回调      # :386-387
+    try:
+        deliver(fired)                  # :389 回调注入 history 并驱动 agent 回合
+    except BaseException:               # :390 连 KeyboardInterrupt 也接住
+        restore_cron_jobs(fired)        # :391 重新置 pending=True 并回灌队列（:335-349）
+        raise                           # :392 原样上抛，绝不静默丢批
+    acknowledge_cron_jobs(fired)        # :393（实现 :292-333）
+    return len(fired)                   # :394
+```
+
+ack 内部（:292-333）：
+
+```
+    ├─ recurring → pending_delivery=False（等下一个匹配分钟再 fire）
+    ├─ one-shot  → 从 scheduled_jobs 删除（删除动作在 ack，不在 consume）
+    └─ durable 有变化 → 落盘；落盘失败 → 恢复被删 job、恢复 pending 标志、
+                       把不在队列中的 job 重新入队，再抛（:319-333）
 ```
 
 - 队列防重入靠 `pending_delivery`：true 期间 poll 不会再入队（:277）、
@@ -138,8 +150,9 @@ consume_cron_queue()        # 整队取出并清空
 - **重复执行的窗口**：consume 与 ack 之间进程被杀 → 磁盘上仍是
   `pending_delivery=True` → 重启回灌队列 → 同一 prompt 再执行一次。这是
   at-least-once 的既定代价，无幂等去重；
-- 交付粒度是**回合边界**：调度线程照常入队，但注入只发生在 `run()` 的
-  `wait_for_cli_event` 返回 `"cron"` 之时——模型正在跑长回合时任务在队列里等待。
+- 交付粒度是**回合边界**：调度线程照常入队，但 `run_delivery` 只在 `run()` 的
+  `wait_for_cli_event` 返回 `"cron"` 之后才被调（loop.py:256）——模型正在跑长回合
+  时任务在队列里等待。
 
 ## 8. 接线现状（必读）
 
@@ -158,20 +171,24 @@ consume_cron_queue()        # 整队取出并清空
 `subTools`（:298-311）**不含** cron 三件套——子代理不能排/查/撤定时任务，
 只有主 agent 可以。
 
-**主循环**（loop.py `run()` 与 `wait_for_cli_event()`）：
+**主循环**（loop.py；`run()` 只管事件循环与"怎么投递"，"何时 ack/restore"收口在
+`run_delivery`。cron 句柄经 `Loop.__init__` 的单跳别名 `self.cron =
+self.toolsManager.cronScheduler`（loop.py:30）取得，此后 loop 不再二跳 toolsManager）：
 
 ```
-loop.py:230  start_runtime_threads()                # 启动时：load 落盘任务 + 起轮询线程
-loop.py:209-210  has_cron_queue() → 返回 ("cron", None)   # 事件等待：cron 优先于用户输入
-loop.py:246-250  consume → history.append({"role": "user", "content": f"[Scheduled] {job.prompt}"})
-                 payload = "\n".join(job.prompt)     # 注意：payload 是无前缀的原文
-loop.py:253      agent_loop(history, payload)        # payload 仅作 active_request（压缩摘要用），不重复入 history
-loop.py:256      异常 → restore_cron_jobs(fired)     # 随后 raise
-loop.py:260      成功 → acknowledge_cron_jobs(fired)
-loop.py:267  stop_runtime_threads()                  # 退出时
+loop.py:239  self.cron.start_runtime_threads()        # 启动时：load 落盘任务 + 起轮询线程
+loop.py:210-211  self.cron.has_cron_queue() → 返回 ("cron", None)   # 事件等待：cron 优先于用户输入
+loop.py:256  self.cron.run_delivery(deliver)          # 投递唯一入口；deliver 闭包 :251-255：
+             #   :253  history.append({"role": "user", "content": f"[Scheduled] {job.prompt}"})
+             #   :254  print [cron] delivered {id}
+             #   :255  _run_turn(history, "\n".join(job.prompt))  # payload 是无前缀原文
+             #   协议内部：consume/ack/restore 全在 cron_scheduler.py:385/393/391，loop 不可见
+loop.py:228-234  _run_turn → agent_loop(history, payload)   # user 分支（:249）与 cron 分支共用；
+             #   payload 仅作 active_request（压缩摘要用），不重复入 history
+loop.py:257  self.cron.stop_runtime_threads()         # 退出时
 ```
 
-`wait_for_cli_event` 的优先级细节（:206-224）：每轮先查 cron 队列，非空立即返回
+`wait_for_cli_event` 的优先级细节（loop.py:207-225）：每轮先查 cron 队列，非空立即返回
 `"cron"`（**不打印 `s12>>` 提示符**、不等 stdin）；用户输入此刻还躺在
 `stdinQueue` 里，下一个事件循环再取。即 cron 可以插队在先输入的用户消息之前。
 
@@ -222,7 +239,7 @@ loop.py:267  stop_runtime_threads()                  # 退出时
 |---|---|
 | `env.py` | 自建 `Env()` 实例，仅消费 `durablePath`（env.py:24，`<cwd>/.lcc/scheduled_tasks.json`；`.lcc` 目录由 Env 构造时 mkdir） |
 | `tools_manager.py` | 持有唯一实例（:257）；`schedule_cron`/`list_crons`/`cancel_cron` 三个主 agent 工具的宿主 |
-| `loop.py` | 生命周期（start/stop）与交付闭环（consume/ack/restore）的驱动方；cron 事件与用户输入共用同一事件循环 |
+| `loop.py` | 生命周期（`self.cron.start/stop_runtime_threads`，loop.py:239/:257）与投递回调（`deliver` 闭包）的提供方；consume/ack/restore 时序由本模块 `run_delivery` 自行执行；cron 事件与用户输入共用同一事件循环 |
 | `background_tasks_manager.py` | 概念对称但零耦合：那边是"发任务收结果"，这里是"到点发 prompt" |
 | `hooks.py` | **不经过任何 hook**：cron 注入的 `[Scheduled]` user 消息不触发 `UserPromptSubmit`；但 cron 工具调用照常走实例 B 的 `PreToolUse`/`PostToolUse`（HOOKS.md §6） |
 | `compact_manager.py` | 间接：cron 消息进入 history 后受常规压缩管辖 |

@@ -378,3 +378,17 @@ class CronScheduler:
         # 供外部只读展示的快照：内部持锁复制注册表，调用方不再接触 cron_lock / scheduled_jobs
         with self.cron_lock:
             return list(self.scheduled_jobs.values())
+
+    def run_delivery(self, deliver) -> int:
+        # at-least-once 投递协议的唯一执行者：整批取出 -> 交付回调成功才 ack，
+        # 回调抛出任何异常则 restore 回队列并原样 re-raise，绝不静默丢批
+        fired = self.consume_cron_queue()
+        if not fired:
+            return 0
+        try:
+            deliver(fired)
+        except BaseException:
+            self.restore_cron_jobs(fired)
+            raise
+        self.acknowledge_cron_jobs(fired)
+        return len(fired)

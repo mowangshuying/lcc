@@ -1,7 +1,7 @@
 # ToolsManager 技术文档
 
 > 对应源码：`tools_manager.py`（本仓库当前版本 610 行）
-> 状态：完整，**已接入主循环**（`loop.py:18` 构造、`loop.py:162` 执行；
+> 状态：完整，**已接入主循环**（`loop.py:22` 构造、`loop.py:170` 执行；
 > 子代理执行循环内置于本类 `run_subagent`；bash 后台任务委托 `backgroundTasksManager`，
 > 详见 BACKGROUND_TASKS_MANAGER.md）
 
@@ -173,17 +173,17 @@ handler——`compact` 仍是唯一"模型可见、但路由表查无此人"的�
 
 ## 4. 构造与依赖
 
-`ToolsManager()` 无参构造（loop.py:18），内部自建全部依赖：
+`ToolsManager()` 无参构造（loop.py:22），内部自建全部依赖：
 
 | 成员 | 来源 | 说明 |
 |---|---|---|
 | `env` | `Env()` | 第 2 个 Env 实例（ENV.md §4） |
 | `subSystemPrompt` | 硬编码 | "coding agent at {workDir}...return a concise final answer" |
 | `hooks` | `Hooks()` | **第 2 个 Hooks 实例**，Pre/PostToolUse 实际归它管（HOOKS.md §6） |
-| `client` | `Anthropic(base_url=...)` | 仅子代理自用；主循环另有自己的 client（loop.py:17） |
+| `client` | `Anthropic(base_url=...)` | 仅子代理自用；主循环另有自己的 client（loop.py:18） |
 | `skillManager` | `SkillManager(env.skillsDirPath)` | 构造即扫描技能目录（SKILL_MANAGER.md） |
 | `taskManager` | `TaskManager(env.taskDirPath)` | 6 个任务依赖工具的共享实例（222，TASK_MANAGER.md） |
-| `backgroundTasksManager` | `BackgroundTasksManager()` | 后台 bash 任务引擎（223）；**全库唯一实例**，`execute_tool` 的后台分支与 `run_bash` 前台共用它，`Loop` 经 `self.toolsManager` 复用它收结果（loop.py:72，BACKGROUND_TASKS_MANAGER.md） |
+| `backgroundTasksManager` | `BackgroundTasksManager()` | 后台 bash 任务引擎（223）；**全库唯一实例**，`execute_tool` 的后台分支与 `run_bash` 前台共用它，`Loop` 经 `self.toolsManager` 复用它收结果（loop.py:77，BACKGROUND_TASKS_MANAGER.md） |
 | 4 张列表 | 225-271 | `tools`(225-241) / `toolsHandlers`(242-257) / `subTools`(258-264) / `subToolsHandlers`(265-271) |
 
 `MAX_SUBAGENT_TURNS = 50`（类常量，210 行）。全部依赖**不接受注入**，测试替身只能事后覆写属性。
@@ -277,7 +277,7 @@ execute_tool(block, handlers, allow_background=True)
 - 渲染 `[ ] / [>] / [x]` + 末尾 `(done/total completed)`；空列表 → `No todos`。
 
 外约：主循环连续 3 轮未调用 todo_write 时，往结果批里塞
-`<reminder>Update your todos.</reminder>`（loop.py:174-183）——提醒逻辑在
+`<reminder>Update your todos.</reminder>`（loop.py:182-191）——提醒逻辑在
 loop 不在本类。
 
 ### 6.5 run_load_skill（565-566）
@@ -348,8 +348,8 @@ for _ in range(50):
 
 - `COMPACT` schema 在 `self.tools`（128-137、登记 234）——模型可见可调；
 - `toolsHandlers` **无** `compact` 项；主循环在分发前按名字拦截
-  （loop.py:159-160），置位 `compact_requested`，回合工具结果 append 完后
-  调 `compactManager.compact_history` 整列表替换（loop.py:186-187）；
+  （loop.py:166-168），置位 `compact_requested`，回合工具结果 append 完后
+  调 `compactManager.compact_history` 整列表替换（loop.py:194-195）；
 - 若子代理幻觉调用 compact：不在 `subTools`，但 `execute_tool` 仍会被调 →
   路由表查无 → `Unknown:compact`；
 - 配对语义与悬空 tool_use 分析见 COMPACT_MANAGER.md §10.3——**别给
@@ -404,7 +404,7 @@ if not path.is_relative_to(env.workDirPath): raise ValueError(...)
    隐式拼接，句号和空格间无分隔（`at D:\x. Complete...`），纯观感问题；
 6. 子代理 API 调用失败返回错误字符串而非抛出——主代理只看到一条普通
    tool_result，可能反复重试 `task`（无次数/熔断限制）；
-7. 每个主循环 `Loop` 实际存在两个 `Anthropic` 客户端（loop.py:17 与
+7. 每个主循环 `Loop` 实际存在两个 `Anthropic` 客户端（loop.py:18 与
    tools_manager.py:220）和两个 `Hooks`（HOOKS.md §6）——改配置/换
    hook 时别只想到一处。
 
@@ -412,7 +412,7 @@ if not path.is_relative_to(env.workDirPath): raise ValueError(...)
 
 | 模块 | 关系 |
 |---|---|
-| `loop.py` | 构造本类；`messages.create(tools=self.toolsManager.tools)`；非 compact 工具全部经 `execute_tool(block, toolsHandlers)`（loop.py:162）；每轮开头经本类自持的 `backgroundTasksManager` 收割后台结果并注入（loop.py:72，BACKGROUND_TASKS_MANAGER.md §10） |
+| `loop.py` | 构造本类；`messages.create(tools=self.toolsManager.tools)`；非 compact 工具全部经 `execute_tool(block, toolsHandlers)`（loop.py:170）；每轮开头经本类自持的 `backgroundTasksManager` 收割后台结果并注入（loop.py:77，BACKGROUND_TASKS_MANAGER.md §10） |
 | `hooks.py` | 自建实例 B；Pre/PostToolUse、子代理 Stop 的宿主 |
 | `permission.py` | 经 hooks 间接闸门所有工具执行（PERMISSION.md） |
 | `skill_manager.py` | 持有唯一实例；`skills_catalog()` 被 loop 启动时调一次冻结进系统提示 |
