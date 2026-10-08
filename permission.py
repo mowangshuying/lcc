@@ -65,7 +65,10 @@ class Permission:
         return "deny"
 
 
-    def check_permission(self, block) -> str | None:
+    ### prompt_user=True（Lead 默认）：命中规则时交互式询问，行为与旧版逐字一致。
+    ### prompt_user=False（队友场景，Lane D 注入契约）：绝不占用控制台 input()，
+    ### 命中即返回拒绝文案（对照 s13 "Permission required: ..." 语义）。
+    def check_permission(self, block, prompt_user: bool = True) -> str | None:
         if block.name == BASH:
             reason = self.check_deny_list(block.input.get("command", ""))
             if reason:
@@ -74,6 +77,9 @@ class Permission:
 
         reason = self.check_rules(block.name, block.input)
         if reason:
+            if not prompt_user:
+                log_error("permission", f"Permission required: {reason}")
+                return f"Permission required: {reason}"
             decision = self.ask_user(block.name, block.input, reason)
             if decision == "deny":
                 log_error("permission", "Permission denied by user")

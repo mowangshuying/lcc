@@ -1,4 +1,5 @@
 import threading
+from pathlib import Path
 from env import Env
 import subprocess
 import signal
@@ -104,7 +105,10 @@ class BackgroundTasksManager:
     def start_background_task(self, block):
         return self.start(block)
     
-    def run_bash_process(self, command: str) -> tuple[str, int | None]:
+    ### cwd=None 保持现行为（锁定 env.workDirPath）；Lane D 为 base 工具增加 cwd 后，
+    ### bash 的工作目录须随之外切，本参数是本模块唯一允许的透传改动点。
+    def run_bash_process(self, command: str,
+                         cwd: str | Path | None = None) -> tuple[str, int | None]:
         process = None
         try:
             process = subprocess.Popen(
@@ -114,7 +118,7 @@ class BackgroundTasksManager:
                 stderr=subprocess.PIPE,
                 text=True,
                 errors="replace",
-                cwd=self.env.workDirPath,
+                cwd=cwd or self.env.workDirPath,
                 start_new_session=True,
             )
             

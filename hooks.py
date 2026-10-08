@@ -24,8 +24,13 @@ class Hooks:
     def register_hook(self, event: str, callback):
         self.hooks[event].append(callback)
 
-    def trigger_hooks(self, event: str, *args):
+    ### skip_permission=True（Lane D 队友链路）：仅跳过交互式 permission_hook，
+    ### 其余钩子照常执行；权限判定已由调用方以 prompt_user=False 手动检过。
+    ### 注意用 == 比较：存储的绑定方法与每次属性访问新生成的绑定方法 is 不成立但 == 成立。
+    def trigger_hooks(self, event: str, *args, skip_permission: bool = False):
         for callback in self.hooks[event]:
+            if skip_permission and callback == self.permission_hook:
+                continue
             result = callback(*args)
             if result is not None:
                 return result

@@ -14,6 +14,9 @@ from dataclasses import asdict, dataclass
 from background_tasks_manager import BackgroundTasksManager
 from cron_scheduler import CronScheduler
 from permission import Permission
+from message_bus import MessageBus
+from worktree_manager import WorktreeManager
+from agent_teams_manager import AgentTeamsManager
 from tool_names import BASH, READ_FILE, WRITE_FILE, EDIT_FILE, GLOB, TODO_WRITE, TASK, LOAD_SKILL, COMPACT, CREATE_TASK, UPDATE_TASK, LIST_TASKS, GET_TASK, CLAIM_TASK, COMPLETE_TASK, SCHEDULE_CRON, LIST_CRONS, CANCEL_CRON
 from log import log_info, log_warn
 
@@ -258,6 +261,32 @@ class ToolsManager:
         self.backgroundTasksManager = BackgroundTasksManager()
         self.cronScheduler = CronScheduler()
 
+        ### Lane D 组装根：MessageBus → WorktreeManager → AgentTeamsManager
+        self.messageBus = MessageBus(self.env.mailboxesDirPath, self.env.workDirPath)
+        self.worktreeManager = WorktreeManager(self.env, self.taskManager)
+        # Lead 自身也占一个 assignment 版本号槽位（对照 s13：owner='agent'）
+        self.taskManager.assignment_versions.setdefault("agent", 0)
+
+        ### 队友工具适配器注入契约：adapters[工具名](params: dict, cwd: str) -> str
+        ### 走 base run_*（显式 cwd），不经过 Lead 的 _agent_cwd 租约解析
+        self.toolAdapters = {
+            BASH: lambda params, cwd: self.run_bash(params["command"], cwd=cwd),
+            READ_FILE: lambda params, cwd: self.run_read(
+                params["path"], params.get("limit"), cwd=cwd),
+            WRITE_FILE: lambda params, cwd: self.run_write(
+                params["path"], params["content"], cwd=cwd),
+            EDIT_FILE: lambda params, cwd: self.run_edit(
+                params["path"], params["old_string"], params["new_string"], cwd=cwd),
+            GLOB: lambda params, cwd: self.run_glob(params["pattern"], cwd=cwd),
+        }
+        self.agentTeamsManager = AgentTeamsManager(
+            self.env, self.messageBus, self.taskManager, self.worktreeManager,
+            self.client, self.env.modelId,
+            self.toolAdapters,
+            permission_check=self.hooks.permission.check_permission,
+            hooks_trigger=self.hooks.trigger_hooks,
+        )
+
         self.tools = [
             self.bash_info(),
             self.read_file_info(),
@@ -279,11 +308,12 @@ class ToolsManager:
             self.cancel_cron_info(),
         ]
         self.toolsHandlers = {
-            BASH: self.run_bash,
-            READ_FILE: self.run_read,
-            WRITE_FILE: self.run_write,
-            EDIT_FILE: self.run_edit,
-            GLOB: self.run_glob,
+            ### Lead 侧 base 工具走 run_agent_*：默认 cwd 由 worktree 租约解析（对照 s13）
+            BASH: self.run_agent_bash,
+            READ_FILE: self.run_agent_read,
+            WRITE_FILE: self.run_agent_write,
+            EDIT_FILE: self.run_agent_edit,
+            GLOB: self.run_agent_glob,
             TODO_WRITE: self.run_todo_write,
             TASK: self.run_subagent,
             LOAD_SKILL: self.run_load_skill,
@@ -297,6 +327,9 @@ class ToolsManager:
             LIST_CRONS: self.run_list_crons,
             CANCEL_CRON: self.run_cancel_cron,
         }
+        ### 团队 7 工具并入 Lead（send_message 以团队版为准——键本就不在 base 表，直接并入）
+        self.tools = self.tools + self.agentTeamsManager.team_schemas()
+        self.toolsHandlers.update(self.agentTeamsManager.teamToolHandlers)
         self.subTools = [
             self.sub_bash_info(),
             self.read_file_info(),
@@ -304,6 +337,7 @@ class ToolsManager:
             self.edit_file_info(),
             self.glob_info(),
         ]
+        ### 子代理工具：base run_* 无 cwd 注入，锁死 env.workDirPath（现行为不变）
         self.subToolsHandlers = {
             BASH: self.run_bash,
             READ_FILE: self.run_read,
@@ -312,12 +346,6 @@ class ToolsManager:
             GLOB: self.run_glob,
         }
 
-    def safe_path(self, p: str) -> Path:
-        path = (self.env.workDirPath / p).resolve()
-        if not path.is_relative_to(self.env.workDirPath):
-            raise ValueError(f"Path escapes workspace: {p}")
-        return path
-    
     ## 工具函数抽出
     def execute_tool(self, block, handlers: dict, allow_background: bool = True) -> str:
         blocked = self.hooks.trigger_hooks("PreToolUse", block)
@@ -414,8 +442,8 @@ class ToolsManager:
     def cancel_cron_info(self):
         return self.CANCEL_CRON
 
-    ### bash
-    def run_bash(self, command: str) -> str:
+    ### bash：cwd=None 保持现行为（env.workDirPath）
+    def run_bash(self, command: str, cwd: str | Path | None = None) -> str:
         found = False
         for d in Permission.DENY_LIST:
             if d in command:
@@ -424,19 +452,22 @@ class ToolsManager:
         if found:
             return "Error: Dangerous command blocked"
 
-        output, exit_code = self.backgroundTasksManager.run_bash_process(command)
+        output, exit_code = self.backgroundTasksManager.run_bash_process(command, cwd=cwd)
         return self.backgroundTasksManager.format_bash_result(output, exit_code)
 
-    def safe_path(self, p: str) -> Path:
-        path = (self.env.workDirPath / p).resolve()
-        if not path.is_relative_to(self.env.workDirPath):
+    ### 路径围栏按 cwd 生效；cwd=None 时围栏仍是 env.workDirPath
+    def safe_path(self, p: str, cwd: str | Path | None = None) -> Path:
+        root = Path(cwd) if cwd is not None else self.env.workDirPath
+        path = (root / p).resolve()
+        if not path.is_relative_to(root):
             raise ValueError(f"Path escapes workspace: {p}")
         return path
 
     ### read_file
-    def run_read(self, path: str, limit: int | None = None) -> str:
+    def run_read(self, path: str, limit: int | None = None,
+                 cwd: str | Path | None = None) -> str:
         try:
-            lines = self.safe_path(path).read_text(encoding="utf-8").splitlines()
+            lines = self.safe_path(path, cwd).read_text(encoding="utf-8").splitlines()
             if limit and limit < len(lines):
                 lines = lines[:limit] + [f"... ({len(lines) - limit} more lines)"]
             return "\n".join(lines)
@@ -444,9 +475,10 @@ class ToolsManager:
             return f"Error:{e}"
 
     ### write_file
-    def run_write(self, path: str, content: str) -> str:
+    def run_write(self, path: str, content: str,
+                  cwd: str | Path | None = None) -> str:
         try:
-            file_path = self.safe_path(path)
+            file_path = self.safe_path(path, cwd)
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content, encoding="utf-8")
             return f"Wrote {len(content)} bytes to {path}"
@@ -454,9 +486,10 @@ class ToolsManager:
             return f"Error: {e}"
 
     ### edit_file
-    def run_edit(self, path: str, old_string: str, new_string: str) -> str:
+    def run_edit(self, path: str, old_string: str, new_string: str,
+                 cwd: str | Path | None = None) -> str:
         try:
-            file_path = self.safe_path(path)
+            file_path = self.safe_path(path, cwd)
             text = file_path.read_text(encoding="utf-8")
             if old_string not in text:
                 return f"Error: text not found in {path}"
@@ -466,11 +499,12 @@ class ToolsManager:
             return f"Error:{e}"
 
     ### glob
-    def run_glob(self, pattern: str) -> str:
+    def run_glob(self, pattern: str, cwd: str | Path | None = None) -> str:
         try:
+            root = Path(cwd) if cwd is not None else self.env.workDirPath
             matches = []
-            for match in glob.glob(pattern, root_dir=self.env.workDirPath, recursive=True):
-                if (self.env.workDirPath / match).resolve().is_relative_to(self.env.workDirPath):
+            for match in glob.glob(pattern, root_dir=root, recursive=True):
+                if (root / match).resolve().is_relative_to(root):
                     matches.append(match)
             matches = sorted(matches)
             shown = matches[:200]
@@ -485,6 +519,34 @@ class ToolsManager:
         except Exception as e:
             return f"Error:{e}"
     
+    ### Lead 侧租约解析（对照 s13 _agent_cwd）：无 assignment 时 assignment_cwd('agent')
+    ### 返回 env.workDirPath，Lead 现行为逐字不变；租约目录缺失等异常转为错误字符串。
+    def _agent_cwd(self) -> tuple[str | None, str | None]:
+        try:
+            return self.worktreeManager.assignment_cwd("agent"), None
+        except (FileNotFoundError, ValueError) as exc:
+            return None, f"Error: Invalid task assignment: {exc}"
+
+    def run_agent_bash(self, command: str) -> str:
+        cwd, error = self._agent_cwd()
+        return error or self.run_bash(command, cwd=cwd)
+
+    def run_agent_read(self, path: str, limit: int | None = None) -> str:
+        cwd, error = self._agent_cwd()
+        return error or self.run_read(path, limit, cwd=cwd)
+
+    def run_agent_write(self, path: str, content: str) -> str:
+        cwd, error = self._agent_cwd()
+        return error or self.run_write(path, content, cwd=cwd)
+
+    def run_agent_edit(self, path: str, old_string: str, new_string: str) -> str:
+        cwd, error = self._agent_cwd()
+        return error or self.run_edit(path, old_string, new_string, cwd=cwd)
+
+    def run_agent_glob(self, pattern: str) -> str:
+        cwd, error = self._agent_cwd()
+        return error or self.run_glob(pattern, cwd=cwd)
+
     ### update todos
     def update_todos(self, todos: list | str) -> str:
         if isinstance(todos, str):
