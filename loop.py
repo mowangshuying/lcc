@@ -10,9 +10,17 @@ import queue
 import sys
 import threading
 import time
-from log import log_info, log_warn
+from log import log_info, log_warn, log_error
+from recovery import (
+    RecoveryState,
+    withRetry,
+    isPromptTooLong,
+    CONTINUATION_PROMPT,
+    DEFAULT_MAX_TOKENS,
+    ESCALATED_MAX_TOKENS,
+    MAX_RECOVERY_RETRIES,
+)
 class Loop:
-    MAX_REACTIVE_RETRIES = 1
     def __init__(self):
         self.env = Env()
         self.hooks = Hooks()
@@ -157,15 +165,21 @@ class Loop:
 
     ### turn 终点兜底：正常返回与异常分支都释放已完成的 Lead assignment
     ### （release_completed_assignment 幂等，任务未完成时为 no-op）
-    def agent_loop(self, messages: list, active_request: str):
+    def agent_loop(self, messages: list, active_request: str, skip_approval: bool = False):
         try:
-            self._agent_loop_inner(messages, active_request)
+            self._agent_loop_inner(messages, active_request, skip_approval)
         finally:
             self.taskManager.release_completed_assignment("agent")
 
-    def _agent_loop_inner(self, messages: list, active_request: str):
+    def _agent_loop_inner(self, messages: list, active_request: str,
+                          skip_approval: bool = False):
         rounds_since_todo = 0
-        reactive_retries = 0
+        ### 每 turn 新建恢复状态（对齐 s15 L3105：state 建在 agent_loop 内、while 之外，
+        ### 跨该 turn 的多轮复用；被动压缩用 state.hasAttemptedReactiveCompact 一次性旗标，
+        ### 不在压缩后重建 state）。挂 self.recoveryState 供外部/后续 lane 观察。
+        state = RecoveryState(self.env.modelId, self.env.fallbackModelId)
+        self.recoveryState = state
+        max_tokens = DEFAULT_MAX_TOKENS
         releavant_memories = self.memoryManager.load_memories(messages)
         self.system_prompt = self.build_system_prompt(releavant_memories)
 
@@ -198,29 +212,61 @@ class Loop:
                 system = f"{system}\n\n{mcp_note}"
 
             try:
-                response = self.client.messages.create(
-                    model=self.env.modelId,
-                    system=system,
-                    messages=messages,
-                    tools=pool_tools,
-                    max_tokens=8000,
+                ### 包 withRetry：模型用 state.currentModel（529 达阈值可切 fallback）。
+                ### 退避 time.sleep 最长 ~32s 会阻塞事件循环——与 s15 双轨下 agent_lock
+                ### 同样阻塞的权衡一致，此处接受（Lead 前台等待期间本就串行）。
+                response = withRetry(
+                    lambda: self.client.messages.create(
+                        model=state.currentModel,
+                        system=system,
+                        messages=messages,
+                        tools=pool_tools,
+                        max_tokens=max_tokens,
+                    ),
+                    state,
                 )
-                
-                reactive_retries = 0
             except Exception as error:
-                too_long = False
-                for text in ("prompt_too_long", "too many tokens"):
-                    if text in str(error).lower():
-                        too_long = True
-                        break
-                    
-                if too_long and reactive_retries < self.MAX_REACTIVE_RETRIES:
+                ### 被动压缩优先（一次性旗标，对齐 s15 L3137-3140）：命中 too-long 且未压过
+                if isPromptTooLong(error) and not state.hasAttemptedReactiveCompact:
                     messages[:] = self.compactManager.reactive_compact(messages, active_request)
-                    reactive_retries += 1
+                    state.hasAttemptedReactiveCompact = True
                     continue
-                
-                raise
-            
+
+                ### N3 错误降级：重试耗尽/其他异常——append [Error] 文本后 return，
+                ### CLI 存活不再崩（对齐 s15 L3141-3145，此路径 Stop hooks 不触发）。
+                messages.append({
+                    "role": "assistant",
+                    "content": [{
+                        "type": "text",
+                        "text": f"[Error] {type(error).__name__}: {error}",
+                    }],
+                })
+                log_error("loop", f"API 调用失败，降级返回: {type(error).__name__}: {error}")
+                ### release 由外层 agent_loop 的 finally 兜底
+                return
+
+            ### N2 max_tokens 升档/续打（对齐 s15 L3150-3165）
+            if response.stop_reason == "max_tokens":
+                if not state.maxTokensEscalated:
+                    ### 首次截断：升档重打，绝不 append 半截（避免悬空 assistant/tool_result）
+                    max_tokens = ESCALATED_MAX_TOKENS
+                    state.maxTokensEscalated = True
+                    log_warn("recovery", f"[max_tokens] 升档重打 max_tokens={max_tokens}")
+                    continue
+                ### 已升档仍截断：append 半截 assistant，续打至多 MAX_RECOVERY_RETRIES 次
+                messages.append({"role": "assistant", "content": response.content})
+                if state.recoveryCount < MAX_RECOVERY_RETRIES:
+                    messages.append({"role": "user", "content": CONTINUATION_PROMPT})
+                    state.recoveryCount += 1
+                    log_warn("recovery", f"[max_tokens] 续打 {state.recoveryCount}/{MAX_RECOVERY_RETRIES}")
+                    continue
+                ### 耗尽按正常收尾（对齐 s15 L3161-3162：不触发 Stop）
+                log_warn("recovery", "[max_tokens] 续打耗尽，收尾返回")
+                return
+
+            ### 正常轮：重置升档状态（对齐 s15 L3164-3165）
+            max_tokens = DEFAULT_MAX_TOKENS
+            state.maxTokensEscalated = False
 
             ### 将返回内容重新添加至message列表中
             messages.append({"role": "assistant", "content": response.content})
@@ -249,7 +295,7 @@ class Loop:
                 if block.name == COMPACT:
                     compact_requested = True
                 else:
-                    output = self.toolsManager.execute_tool(block, pool_handlers)
+                    output = self.toolsManager.execute_tool(block, pool_handlers, skip_approval=skip_approval)
                     results.append(
                         {
                             "type": "tool_result",
@@ -286,17 +332,24 @@ class Loop:
     def _start_stdin_reader(self):
         threading.Thread(target=self.reader, daemon=True).start()
                 
-    def wait_for_cli_event(self) -> tuple[str, str | None]:
+    def wait_for_cli_event(self) -> tuple[str, str | None, bool]:
+        ### 返回 (kind, payload, interactive)：仅 user 输入为前台交互（True），
+        ### wake/cron/bg 等非前台事件一律 False（驱动 run() 的 skip_approval fail-closed）。
         prompt_visible = False
         while True:
             ### 团队事件优先：Lead 邮箱有信即唤醒主循环（非破坏性偷看，
             ### 真正取信在 run() 的 wake 分支 consume_lead_inbox）
             if self.messageBus.peek("lead"):
-                return "wake", None
+                return "wake", None, False
 
             if self.cron.has_cron_queue():
-                return "cron", None
-            
+                return "cron", None, False
+
+            ### N4 后台完成事件源（优先级 inbox→cron→bg→stdin）：只查不清零，
+            ### 收割仍由 _agent_loop_inner 圈首 inject_background_results 负责。
+            if self.toolsManager.backgroundTasksManager.has_pending():
+                return "bg", None, False
+
             if not prompt_visible:
                 print("s12>>", end="", flush=True)
                 prompt_visible = True
@@ -307,18 +360,27 @@ class Loop:
                 continue
             
             if line is None:
-                return "quit", None
+                return "quit", None, False
             
-            return "user", line.rstrip("\n")
+            return "user", line.rstrip("\n"), True
         
 
-    def _run_turn(self, history, payload):
-        self.agent_loop(history, payload)
-        lst_content = history[-1]["content"]
-        if isinstance(lst_content, list):
-            for block in lst_content:
-                if getattr(block, "type", None) == "text":
-                    print(f"{COLOR_DEFAULT}text:{block.text}{COLOR_DEFAULT}")
+    def _run_turn(self, history, payload, skip_approval: bool = False):
+        ### M5 全轮打印（对齐 s15 print_turn_assistants L3227-3233）：记录 turn 起点，
+        ### 结束后打印该切片内所有 assistant text 块（替换旧的"仅末条"打印，避免漏打/重打）。
+        turn_start = len(history)
+        self.agent_loop(history, payload, skip_approval)
+        for message in history[turn_start:]:
+            if message.get("role") != "assistant":
+                continue
+            content = message.get("content", [])
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                block_type = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
+                if block_type == "text":
+                    text = block.get("text") if isinstance(block, dict) else getattr(block, "text", "")
+                    print(f"{COLOR_DEFAULT}text:{text}{COLOR_DEFAULT}")
 
     def run(self):
         history = []
@@ -326,7 +388,7 @@ class Loop:
         self.cron.start_runtime_threads()
         try:
             while True:
-                kind, payload = self.wait_for_cli_event()
+                kind, payload, interactive = self.wait_for_cli_event()
                 if kind == "quit":
                     break
                 if kind == "user":
@@ -334,7 +396,8 @@ class Loop:
                         break
                     self.hooks.trigger_hooks("UserPromptSubmit", payload)
                     history.append({"role": "user", "content": payload})
-                    self._run_turn(history, payload)
+                    ### 前台交互轮：skip_approval=False，命中确认规则照常 input()
+                    self._run_turn(history, payload, skip_approval=False)
                 elif kind == "wake":  # 团队事件：取信 -> 渲染 -> 注入伪 user turn -> 跑一轮
                     events = self.agentTeamsManager.consume_lead_inbox()
                     if not events:
@@ -342,13 +405,16 @@ class Loop:
                     text = self.agentTeamsManager.format_team_events(events)
                     log_info("team", f"投递 {len(events)} 条团队事件，唤醒 Lead")
                     self.inject_team_events(history, text)
-                    self._run_turn(history, text)
+                    self._run_turn(history, text, skip_approval=True)
+                elif kind == "bg":  # N4 后台完成：不注入用户消息，空 prompt 靠圈首 inject 收割
+                    ### 空 prompt 绝不追加空 user 消息；收割在 _agent_loop_inner 圈首自然发生
+                    self._run_turn(history, "", skip_approval=True)
                 else:  # cron：投递时序由 run_delivery 在调度器内部强制执行
                     def deliver(fired):
                         for job in fired:
                             history.append({"role": "user", "content": f"[Scheduled] {job.prompt}"})
                             log_info("cron", f"delivered {job.id}: {job.prompt[:60]}")
-                        self._run_turn(history, "\n".join(job.prompt for job in fired))
+                        self._run_turn(history, "\n".join(job.prompt for job in fired), skip_approval=True)
                     self.cron.run_delivery(deliver)
                 self.check_team_offline_edge()
         except KeyboardInterrupt:

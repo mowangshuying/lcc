@@ -75,7 +75,13 @@ class Permission:
     ### prompt_user=True（Lead 默认）：命中规则时交互式询问，行为与旧版逐字一致。
     ### prompt_user=False（队友场景，Lane D 注入契约）：绝不占用控制台 input()，
     ### 命中即返回拒绝文案（对照 s13 "Permission required: ..." 语义）。
-    def check_permission(self, block, prompt_user: bool = True) -> str | None:
+    ### skip_approval=True（异步 turn，对照 s15 N5 fail-closed L1773）：优先级最高——
+    ### 命中任一"需确认"规则直接返回该固定拒绝串，绝不 input()（硬 deny 列表仍先行拦截）。
+    ASYNC_APPROVAL_DENIED = ("Permission denied: interactive approval is unavailable "
+                             "during an asynchronous turn")
+
+    def check_permission(self, block, prompt_user: bool = True,
+                         skip_approval: bool = False) -> str | None:
         if block.name == BASH:
             reason = self.check_deny_list(block.input.get("command", ""))
             if reason:
@@ -84,6 +90,9 @@ class Permission:
 
         reason = self.check_rules(block.name, block.input)
         if reason:
+            if skip_approval:
+                log_error("permission", self.ASYNC_APPROVAL_DENIED)
+                return self.ASYNC_APPROVAL_DENIED
             if not prompt_user:
                 log_error("permission", f"Permission required: {reason}")
                 return f"Permission required: {reason}"
@@ -100,6 +109,9 @@ class Permission:
             policy = (self.mcp_policy or (lambda _: "confirm"))(block.name)
             if policy != "allow":
                 reason = "MCP tool policy requires confirmation"
+                if skip_approval:
+                    log_error("permission", self.ASYNC_APPROVAL_DENIED)
+                    return self.ASYNC_APPROVAL_DENIED
                 if not prompt_user:
                     log_error("permission", f"Permission required: {reason}")
                     return f"Permission required: {reason}"

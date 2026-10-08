@@ -9,8 +9,12 @@ import atexit
 from tool_names import BASH
 from log import log_info
 
+### 后台 bash 任务引擎（对照 s15 Background Tasks 一节）。
+### hooks_trigger 注入约定（仿 AgentTeamsManager）：签名 hooks_trigger(event, block, output)，
+### 由组装根（tools_manager）绑定到 Hooks.trigger_hooks。
+### ⚠ 任务在后台线程执行，因此注册进 PostToolUse 的钩子须线程安全。
 class BackgroundTasksManager:
-    def __init__(self):
+    def __init__(self, hooks_trigger=None):
         self.env = Env()
         self.tasks: dict[str, dict] = {}
         self.results: dict[str, str] = {}
@@ -19,9 +23,11 @@ class BackgroundTasksManager:
         self.lock = threading.Lock()
         self.shell_processes: set[subprocess.Popen] = set()
         self.shell_processes_lock = threading.RLock()
+        ### None 时跳过钩子层（向后兼容，现状行为不变）
+        self.hooksTrigger = hooks_trigger
         
         self.register_exit_handlers()
-    def start(self, block) -> str:
+    def start(self, block, cwd: str | None = None) -> str:
         if block.name != BASH:
             raise Exception("Only bash blocks can be started in background")
         
@@ -36,9 +42,12 @@ class BackgroundTasksManager:
                 "tool_use_id": block.id,
                 "command": command,
                 "status": "running",
+                ### 派发时刻解析好的工作目录（Lead 租约 cwd），对照 s15 L2299
+                "cwd": str(cwd) if cwd else None,
             }
             
-        thread = threading.Thread(target=self.run, args=(task_id, command), daemon=True)
+        thread = threading.Thread(target=self.run,
+                                  args=(task_id, command, cwd, block), daemon=True)
         try:
             thread.start()
         except Exception:
@@ -49,9 +58,10 @@ class BackgroundTasksManager:
         return task_id
         
             
-    def run(self, task_id: str, command: str):
+    def run(self, task_id: str, command: str,
+            cwd: str | None = None, block=None):
         try:
-            output, exit_code = self.run_bash_process(command)
+            output, exit_code = self.run_bash_process(command, cwd)
             result = self.format_bash_result(output, exit_code)
             
             status = "failed"
@@ -61,6 +71,21 @@ class BackgroundTasksManager:
         except Exception as error:
             result = f"Error: {type(error).__name__}: {error}"
             status = "failed"
+        
+        result = str(result)
+        
+        ### 后台任务的 PostToolUse（对照 s15 L2280-2284）：
+        ### 拿到 result 后、置 status 前触发；钩子返回非 None 视为拦截文案，前缀进 result；
+        ### 钩子自身抛异常则打 [hook error] 前缀并把 status 降级为 failed。
+        if self.hooksTrigger is not None:
+            try:
+                intercepted = self.hooksTrigger("PostToolUse", block, result)
+            except Exception as error:
+                result = f"[hook error] {type(error).__name__}: {error}\n{result}"
+                status = "failed"
+            else:
+                if intercepted is not None:
+                    result = f"{intercepted}\n{result}"
             
         with self.lock:
             task = self.tasks.get(task_id)
@@ -85,12 +110,15 @@ class BackgroundTasksManager:
         notifications = []
         for task_id, task, result in ready:
             log_info("bg", f"collected {task_id}: {task['status']}")
+            ### 摘要截断 200 字符（对照 s15 L2324-2331）；failed 与 completed 共用本模板，
+            ### 由 <status> 标签区分语义。
+            summary = result[:200] if len(result) > 200 else result
             notifications.append(
                 f"<task_notification>\n"
                 f"  <task_id>{task_id}</task_id>\n"
                 f"  <status>{task['status']}</status>\n"
                 f"  <command>{task['command']}</command>\n"
-                f"  <result>{result[:500]}</result>\n"
+                f"  <summary>{summary}</summary>\n"
                 f"</task_notification>"
             )
         
@@ -99,14 +127,21 @@ class BackgroundTasksManager:
     def should_run_background(self, tool_name: str, tool_input: dict) -> bool:
         return (tool_name == BASH) and (tool_input.get("run_in_background") is True)
     
+    ### 是否已有终态（completed/failed）后台任务待收割（对照 s15 has_pending_background）：
+    ### 只查不清零，收割仍由 collect 负责。
+    def has_pending(self) -> bool:
+        with self.lock:
+            return any(task["status"] in {"completed", "failed"}
+                       for task in self.tasks.values())
+    
     def collect_background_results(self) -> list[str]:
         return self.collect()
     
-    def start_background_task(self, block):
-        return self.start(block)
+    def start_background_task(self, block, cwd: str | None = None):
+        return self.start(block, cwd=cwd)
     
-    ### cwd=None 保持现行为（锁定 env.workDirPath）；Lane D 为 base 工具增加 cwd 后，
-    ### bash 的工作目录须随之外切，本参数是本模块唯一允许的透传改动点。
+    ### cwd=None 保持现行为（锁定 env.workDirPath）；后台链路的 cwd 由 start(block, cwd=...)
+    ### 在派发时刻解析并记录进 task，再经 run 透传给本函数——本参数是本模块唯一允许的透传点。
     def run_bash_process(self, command: str,
                          cwd: str | Path | None = None) -> tuple[str, int | None]:
         process = None

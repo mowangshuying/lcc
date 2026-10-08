@@ -259,7 +259,11 @@ class ToolsManager:
         self.client = Anthropic(base_url=self.env.httpUrl)
         self.skillManager = SkillManager(self.env.skillsDirPath)
         self.taskManager  = TaskManager(self.env.taskDirPath)
-        self.backgroundTasksManager = BackgroundTasksManager()
+        ### 后台任务 PostToolUse 钩子：包装成 (event, block, output) 三参回调注入；
+        ### 注意后台线程触发，PostToolUse 链上的钩子须线程安全
+        self.backgroundTasksManager = BackgroundTasksManager(
+            hooks_trigger=lambda event, block, output: self.hooks.trigger_hooks(event, block, output),
+        )
         self.cronScheduler = CronScheduler()
 
         ### Lane D 组装根：MessageBus → WorktreeManager → AgentTeamsManager
@@ -365,20 +369,33 @@ class ToolsManager:
         return self.mcpManager.assemble(self.tools, self.toolsHandlers)
 
     ## 工具函数抽出
-    def execute_tool(self, block, handlers: dict, allow_background: bool = True) -> str:
-        blocked = self.hooks.trigger_hooks("PreToolUse", block)
+    def execute_tool(self, block, handlers: dict, allow_background: bool = True,
+                     skip_approval: bool = False) -> str:
+        ### skip_approval 透传给 PreToolUse 链（permission_hook 消费）：异步 turn 命中确认规则即 fail-closed
+        blocked = self.hooks.trigger_hooks("PreToolUse", block, skip_approval=skip_approval)
         if blocked:
             return str(blocked)
         
         if allow_background and self.backgroundTasksManager.should_run_background(block.name, block.input):
+            ### 派发时刻解析 Lead 租约 cwd（对照 s15 L2264）：租约失效直接把错误串回给模型，
+            ### 不启动任务（同 run_agent_* 的 `error or ...` 闸门语义）
+            cwd, cwd_error = self._agent_cwd()
+            if cwd_error:
+                return cwd_error
             try:
-                task_id = self.backgroundTasksManager.start_background_task(block)
+                task_id = self.backgroundTasksManager.start_background_task(block, cwd=cwd)
                 output = (
                     f"[Background task {task_id} started] "
-                    f"The result will be collected on a later turn."
+                    "Result will arrive as a task_notification."
                 )
             except Exception as error:
-                output = f"[Background task start error] {error}"
+                output = (
+                    f"Error: Failed to start background task: "
+                    f"{type(error).__name__}: {error}"
+                )
+            ### 后台分支就地闭合：PostToolUse 由 worker 在任务完成时触发（对照 s15 L2280），
+            ### 避免同一 block 双触发
+            return str(output)
         
         else:
 

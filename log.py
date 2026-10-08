@@ -5,7 +5,7 @@
 ### 约定：
 ###   行格式    [tag] message（tag 后有且仅有一个空格）
 ###   tag       按域命名、全小写；同域可跨模块共用（这是规范不是病灶）：
-###             hook / cron / memory / task / bg / compact / permission / bus / mcp
+###             hook / cron / memory / task / bg / compact / permission / bus / mcp / recovery
 ###             （agent teams 移植预告：team=队友生命周期、wt=worktree 隔离区，后续 Lane 接入）
 ###   通道      log_info、log_warn -> stdout；log_error -> stderr
 ###   颜色      info 无色、warn 黄、error 红；每条输出行以 COLOR_DEFAULT 复位收尾。

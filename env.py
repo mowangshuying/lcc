@@ -9,6 +9,8 @@ class Env:
             os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
         self.httpUrl = os.getenv("ANTHROPIC_BASE_URL")
         self.modelId = os.getenv("MODEL_ID")
+        # 529 过载时的备选模型；.env 缺该键时为 None，即不启用 fallback 换模型
+        self.fallbackModelId = os.getenv("FALLBACK_MODEL_ID") or None
         self.workDir = os.getcwd() 
         self.workDirPath = Path.cwd()
         self.lccDirPath = self.workDirPath / ".lcc"
