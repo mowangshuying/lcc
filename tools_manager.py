@@ -17,7 +17,8 @@ from permission import Permission
 from message_bus import MessageBus
 from worktree_manager import WorktreeManager
 from agent_teams_manager import AgentTeamsManager
-from tool_names import BASH, READ_FILE, WRITE_FILE, EDIT_FILE, GLOB, TODO_WRITE, TASK, LOAD_SKILL, COMPACT, CREATE_TASK, UPDATE_TASK, LIST_TASKS, GET_TASK, CLAIM_TASK, COMPLETE_TASK, SCHEDULE_CRON, LIST_CRONS, CANCEL_CRON
+from mcp_manager import McpManager
+from tool_names import BASH, READ_FILE, WRITE_FILE, EDIT_FILE, GLOB, TODO_WRITE, TASK, LOAD_SKILL, COMPACT, CREATE_TASK, UPDATE_TASK, LIST_TASKS, GET_TASK, CLAIM_TASK, COMPLETE_TASK, SCHEDULE_CRON, LIST_CRONS, CANCEL_CRON, CONNECT_MCP
 from log import log_info, log_warn
 
 
@@ -287,6 +288,11 @@ class ToolsManager:
             hooks_trigger=self.hooks.trigger_hooks,
         )
 
+        ### s14 MCP：纯本地装配器（不依赖 env / client）
+        self.mcpManager = McpManager()
+        ### wiring：宿主策略回调注入 Permission —— 组装根负责线接，Permission 不自知策略来源
+        self.hooks.permission.mcp_policy = self.mcpManager.policy_for
+
         self.tools = [
             self.bash_info(),
             self.read_file_info(),
@@ -330,6 +336,12 @@ class ToolsManager:
         ### 团队 7 工具并入 Lead（send_message 以团队版为准——键本就不在 base 表，直接并入）
         self.tools = self.tools + self.agentTeamsManager.team_schemas()
         self.toolsHandlers.update(self.agentTeamsManager.teamToolHandlers)
+        ### MCP 入口工具（静态内置）：模型只能看到 connect_mcp，真正的 mcp__* 工具
+        ### 由 assemble_pool 在每轮组装时动态追加
+        self.tools = self.tools + [self.mcpManager.connect_tool_info()]
+        self.toolsHandlers[CONNECT_MCP] = self.mcpManager.run_connect_mcp
+        ### 有意差异（对照 s14：那里没有 teams 概念）：MCP 工具 Lead 独占，
+        ### 子代理与队友工具池不并入 connect_mcp，也不参与 MCP 动态组装
         self.subTools = [
             self.sub_bash_info(),
             self.read_file_info(),
@@ -345,6 +357,12 @@ class ToolsManager:
             EDIT_FILE: self.run_edit,
             GLOB: self.run_glob,
         }
+
+    ### MCP 动态工具池组装（对照 s14 每轮重算）：
+    ### connect_mcp 的效果在下一轮模型调用才可见；顺带刷新策略快照，
+    ### 快照与返回的 handlers 原子成对，Permission 读到的策略与本圈工具池必然一致。
+    def assemble_pool(self) -> tuple[list[dict], dict]:
+        return self.mcpManager.assemble(self.tools, self.toolsHandlers)
 
     ## 工具函数抽出
     def execute_tool(self, block, handlers: dict, allow_background: bool = True) -> str:

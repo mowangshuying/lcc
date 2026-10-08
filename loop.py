@@ -70,6 +70,12 @@ class Loop:
             "协调完成后调用 request_shutdown 关停队友。"
         )
 
+        ### MCP 外部工具指引（对照 s14 语义）
+        prompt_mcp = (
+            "MCP 外部工具：调用 connect_mcp 连接 server 后，其工具以 mcp__{server}__{tool} "
+            "名字在下一轮加入工具池；使用前若宿主策略未放行会向用户请求确认。"
+        )
+
         prompt_memorys = []
         prompt_memory_base = (
             "Memory is selected background knowledge, not a transcript. "
@@ -89,6 +95,7 @@ class Loop:
         prompts.append(prompt_temp)
         prompts.append(prompt_skill)
         prompts.append(prompt_teams)
+        prompts.append(prompt_mcp)
         for prompt in prompt_memorys:
             prompts.append(prompt)
 
@@ -165,13 +172,37 @@ class Loop:
         while True:
             self.inject_background_results(messages)
             messages[:] = self.compactManager.prepare(messages, active_request)
-            
+
+            ### MCP 工具池组装：放在 create 的 try 之外、单独捕获 ValueError——
+            ### 组装期错误（名字碰撞/超长/坏 schema）属宿主不变量被破坏，与 API 异常
+            ### 是两类问题，混进同一个 try 会让 reactive compact 逻辑被污染（零改动原则）。
+            ### 有意不对称：发现期错误直接终止本轮，调用期错误留在工具边界内返回字符串（s14 L490-499）。
+            try:
+                pool_tools, pool_handlers = self.toolsManager.assemble_pool()
+            except ValueError as error:
+                messages.append({
+                    "role": "assistant",
+                    "content": [{
+                        "type": "text",
+                        "text": f"[Error] {type(error).__name__}: {error}",
+                    }],
+                })
+                self.hooks.trigger_hooks("Stop", messages)
+                ### release 由外层 agent_loop 的 finally 兜底
+                return
+
+            ### system 每轮带上已连 MCP server 动态段（connect 之后下一轮可见）
+            system = self.system_prompt
+            mcp_note = self.toolsManager.mcpManager.system_prompt_note()
+            if mcp_note:
+                system = f"{system}\n\n{mcp_note}"
+
             try:
                 response = self.client.messages.create(
                     model=self.env.modelId,
-                    system=self.system_prompt,
+                    system=system,
                     messages=messages,
-                    tools=self.toolsManager.tools,
+                    tools=pool_tools,
                     max_tokens=8000,
                 )
                 
@@ -218,7 +249,7 @@ class Loop:
                 if block.name == COMPACT:
                     compact_requested = True
                 else:
-                    output = self.toolsManager.execute_tool(block, self.toolsManager.toolsHandlers)
+                    output = self.toolsManager.execute_tool(block, pool_handlers)
                     results.append(
                         {
                             "type": "tool_result",

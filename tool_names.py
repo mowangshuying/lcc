@@ -29,3 +29,9 @@ REQUEST_PLAN = "request_plan"
 REVIEW_PLAN = "review_plan"
 CREATE_WORKTREE = "create_worktree"
 SUBMIT_PLAN = "submit_plan"
+CONNECT_MCP = "connect_mcp"
+
+### MCP 动态工具名前缀（对照 s14 "mcp__{server}__{tool}"）。
+### 定义在本模块而非 mcp_manager：permission.py 需要在不依赖 mcp_manager 的前提下
+### 识别前缀，单一事实源，避免 "mcp__" 字符串在两个模块各写一遍的隐式契约。
+MCP_PREFIX = "mcp__"

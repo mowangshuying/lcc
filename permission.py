@@ -1,14 +1,21 @@
 import re
+from typing import Callable
 from color import COLOR_DEFAULT, COLOR_YELLOW
 from env import Env
 from log import log_error, log_warn
-from tool_names import BASH, EDIT_FILE, READ_FILE, WRITE_FILE
+from tool_names import BASH, EDIT_FILE, MCP_PREFIX, READ_FILE, WRITE_FILE
 class Permission:
     ### 硬编码禁止列表 总是禁止；单一事实源：Permission 链式检查与 ToolsManager.run_bash 共用本清单
     DENY_LIST = ["rm -rf /", "sudo", "shutdown", "reboot", "mkfs", "dd if=", "> /dev/"]
 
     def __init__(self):
         self.env = Env()
+
+        ### MCP 策略回调：由组装根（ToolsManager.__init__）注入 McpManager.policy_for，
+        ### 签名 (prefixed_tool_name: str) -> "allow" | "confirm"。
+        ### None（未接线）时一律视为 confirm —— fail-closed：外部工具在宿主策略缺位时
+        ### 永远要求人工确认，绝不默认放行。
+        self.mcp_policy: Callable[[str], str] | None = None
         
         ### (?i) 忽略大小写
         ### (?:^|[;&|()\n{}"'`]) 匹配字符串的开头、分隔符号/花括号或引号（覆盖 powershell -Command "..." 与 & {...} 嵌套写法）
@@ -84,4 +91,20 @@ class Permission:
             if decision == "deny":
                 log_error("permission", "Permission denied by user")
                 return "Permission denied by user"
+
+        ### MCP 外部工具闸门（对照 s14 permission_hook 第三段）：
+        ### 授权判定来自宿主策略表，与 check_rules 的内置规则链相互独立——
+        ### bash/文件类工具名不会以 mcp__ 开头，天然互斥，因此落在 check_rules 之后
+        ### 也不会重复询问。策略缺省 confirm（fail-closed）。
+        if block.name.startswith(MCP_PREFIX):
+            policy = (self.mcp_policy or (lambda _: "confirm"))(block.name)
+            if policy != "allow":
+                reason = "MCP tool policy requires confirmation"
+                if not prompt_user:
+                    log_error("permission", f"Permission required: {reason}")
+                    return f"Permission required: {reason}"
+                decision = self.ask_user(block.name, block.input, reason)
+                if decision == "deny":
+                    log_error("permission", "Permission denied by user")
+                    return "Permission denied by user"
         return None
