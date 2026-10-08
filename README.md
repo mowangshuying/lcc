@@ -41,6 +41,7 @@ python loop.py    # 启动目录即沙箱根；q / exit 退出
 | `message_bus.py` | 文件邮箱消息总线：JSONL 追加/破坏性读取，Lead 与 teammate 线程间唯一通信通道 |
 | `worktree_manager.py` | git worktree 隔离区：一任务一工作目录，注册表校验与创建/移除闸门 |
 | `agent_teams_manager.py` | agent teams 编排：常驻 teammate 线程、共享任务板认领、计划审批与关停协议 |
+| `mcp_manager.py` | MCP 服务器连接与工具池动态组装：connect 发现、`mcp__` 前缀命名、宿主策略授权 |
 | `color.py` | 终端颜色常量 |
 | `tool_names.py` | 工具名常量（零依赖叶子），跨模块名字比较的单一事实源 |
 | `skills/` | 技能目录（含 `greeting` 示例） |
@@ -59,6 +60,7 @@ python loop.py    # 启动目录即沙箱根；q / exit 退出
 | [ENV.md](docs/ENV.md) | `env.py` |
 | [TASK_MANAGER.md](docs/TASK_MANAGER.md) | `task_manager.py` |
 | [AGENT_TEAMS.md](docs/AGENT_TEAMS.md) | `message_bus.py` / `worktree_manager.py` / `agent_teams_manager.py` |
+| [MCP_TOOLS.md](docs/MCP_TOOLS.md) | `mcp_manager.py` |
 | [MEMORY_MANAGER.md](docs/MEMORY_MANAGER.md) | `memory_manager.py` |
 | [PROMPT.md](docs/PROMPT.md) | 测试专用提示词（手工验证用） |
 
