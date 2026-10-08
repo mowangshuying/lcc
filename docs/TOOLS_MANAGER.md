@@ -192,51 +192,61 @@ handler——`compact` 仍是唯一"模型可见、但路由表查无此人"的�
 | `skillManager` | `SkillManager(env.skillsDirPath)` | 构造即扫描技能目录（SKILL_MANAGER.md） |
 | `taskManager` | `TaskManager(env.taskDirPath)` | 6 个任务依赖工具的共享实例（257，TASK_MANAGER.md） |
 | `backgroundTasksManager` | `BackgroundTasksManager()` | 后台 bash 任务引擎（258）；**全库唯一实例**，`execute_tool` 的后台分支与 `run_bash` 前台共用它，`Loop` 经 `self.toolsManager` 复用它收结果（loop.py:77，BACKGROUND_TASKS_MANAGER.md） |
-| 4 张列表 | 261-313 | `tools`(261-280) / `toolsHandlers`(281-299) / `subTools`(300-306) / `subToolsHandlers`(307-313) |
+| 4 张列表 | 300-363 | `tools`(300-319) / `toolsHandlers`(320-339) / `subTools`(349-355) / `subToolsHandlers`(357-363) |
 
-`MAX_SUBAGENT_TURNS = 50`（类常量，245 行）。除 `hooks` 外全部依赖**不接受注入**，测试替身只能事后覆写属性。
+`MAX_SUBAGENT_TURNS = 50`（类常量，249 行）。除 `hooks` 外全部依赖**不接受注入**，测试替身只能事后覆写属性。
 
-## 5. execute_tool：唯一闸门入口（322-352）
+## 5. execute_tool：唯一闸门入口（372-415）
+
+s15 集成后签名增加 `skip_approval=False`（异步 turn fail-closed 审批透传，见 §7 与
+docs/INTEGRATED_HARNESS.md §5）。
 
 ```
-execute_tool(block, handlers, allow_background=True)
-├─ trigger PreToolUse → 非 None？ 直接 return str(blocked)   （323-325）
-│     （handler 不执行、后台不启动、PostToolUse 也不触发——PERMISSION.md §6）
-├─ allow_background 且 should_run_background(name, input)？   （327）
+execute_tool(block, handlers, allow_background=True, skip_approval=False)
+├─ trigger PreToolUse → 非 None？ 直接 return str(blocked)   （375-377）
+│     （handler 不执行、后台不启动、PostToolUse 也不触发——PERMISSION.md §6；
+│       skip_approval 沿此链透传，异步 turn 命中规则即拒不弹 input）
+├─ allow_background 且 should_run_background(name, input)？   （379）
 │     真（后台分支，仅主循环 bash + run_in_background=true）：
-│        task_id = start_background_task(block)               （329）
-│        output = "[Background task {id} started] ...later turn."（330-333）
-│        启动异常 → output = "[Background task start error] {e}"（334-335）
+│        cwd, cwd_error = _agent_cwd()   租约失效 → 直接 return cwd_error，
+│              不启动任务（380-384）
+│        task_id = start_background_task(block, cwd=cwd)      （386）
+│        output = "[Background task {id} started] Result will arrive as a
+│                  task_notification."                         （387-390）
+│        启动异常 → output = "Error: Failed to start background task:
+│                  {Type}: {msg}"                              （391-395）
+│        就地 return str(output)（396-398）——**不经**前台的 PostToolUse，
+│        占位 output 不触发钩子；PostToolUse 改由 worker 完成时触发
 │     假（前台分支）：
 │        handler = handlers.get(name)
-│           查无 → output = "Unknown:{name}"                  （341-342，仍走 PostToolUse）
+│           查无 → output = "Unknown:{name}"                  （403-405，仍走 PostToolUse）
 │           有 handler →
-│              tool_input = dict(block.input)                 （346）
+│              tool_input = dict(block.input)                 （409）
 │              pop("run_in_background", False) 且 allow_background=False
-│                    → 打印降级提示，照常前台执行             （347-348）
-│              output = handler(**tool_input)                 （349）
-└─ trigger PostToolUse(block, output)（返回值丢弃）→ return str(output)（351-352）
+│                    → 打印降级提示，照常前台执行             （410-411）
+│              output = handler(**tool_input)                 （412）
+└─ trigger PostToolUse(block, output)（返回值丢弃）→ return str(output)（414-415）
 ```
 
 关键语义：
 
-- **后台门控三条件**（327 + `should_run_background`）：① `allow_background`（主循环默认
+- **后台门控三条件**（379 + `should_run_background`）：① `allow_background`（主循环默认
   True；`run_subagent` 传 False）② 工具名是 `bash` ③ `input.get("run_in_background") is
   True`（严格布尔）。全满足才转后台，立即回占位 tool_result，真结果由 `Loop` 后续轮收割
   （BACKGROUND_TASKS_MANAGER.md §9/§10）；
 - **`run_in_background` 被"吸收"**：前台分支先 `dict(block.input)` 再
-  `pop("run_in_background", False)`（346-347），使 `run_bash(command)` 这类形参里没有它的
+  `pop("run_in_background", False)`（409-410），使 `run_bash(command)` 这类形参里没有它的
   handler **不会**因这个键而 `TypeError`；不允许后台却带了它 → 打印
-  `[bg] not allowed in this context, running in foreground` 后前台执行（348）；
+  `[bg] not allowed in this context, running in foreground` 后前台执行（411）；
 - **错误即数据**：handler 返回值（含 `Error:...`、占位 `[Background task …]` 文本）原样成为
   tool_result 喂回模型；handler 内部约定自吞异常（§6）；
-- **裸调用仍在**（349）：除 `run_in_background` 外的其他 schema 外野参数、或漏 required
+- **裸调用仍在**（412）：除 `run_in_background` 外的其他 schema 外野参数、或漏 required
   参数 → `TypeError` **不被捕获**，一路炸穿主循环（§11.1）；
 - 同一批多个 `tool_use` 逐个顺序执行（调用方 for 循环），无并行。
 
 ## 6. Handler 明细
 
-### 6.1 run_bash（418-428）
+### 6.1 run_bash（481-491）
 
 - 危险命令检查直接遍历 `Permission.DENY_LIST`（`tools_manager.py:16` 显式
   import；单一事实源定义在 `permission.py:8`：`rm -rf /`、`sudo`、`shutdown`、
@@ -244,8 +254,8 @@ execute_tool(block, handlers, allow_background=True)
   `Error: Dangerous command blocked`（不弹确认）。该检查**不经过** PreToolUse
   hook 链，与 Permission 链式检查共享同一份清单，构成防御纵深且内容零漂移，
   详见 PERMISSION.md §7.2；
-- 危险检查之后**委托** `backgroundTasksManager.run_bash_process(command)` +
-   `format_bash_result(...)`（:427-428）——与后台任务是**同一条执行路径**
+- 危险检查之后**委托** `backgroundTasksManager.run_bash_process(command, cwd=cwd)` +
+   `format_bash_result(...)`（:490-491）——与后台任务是**同一条执行路径**
   （BACKGROUND_TASKS_MANAGER.md §6）：`subprocess.Popen(shell=True,
   cwd=env.workDirPath, start_new_session=True, capture…)` +
   `communicate(timeout=120)`，阻塞最长 120 秒，无流式输出；

@@ -27,6 +27,7 @@ python loop.py    # 启动目录即沙箱根；q / exit 退出
 | 文件 | 职责 |
 | --- | --- |
 | `loop.py` | 主循环：用户输入 → 模型调用 → 工具执行 → 压缩/Hooks 接线（当前阶段 `s12`） |
+| `recovery.py` | 模型调用恢复：429/529 指数退避重试、fallback 换模型、max_tokens 升档续打、prompt-too-long 判定 |
 | `env.py` | `.env` 配置集中加载，供各模块共享 |
 | `log.py` | 统一控制台日志输出：分级 info/warn/error、域 tag、颜色拼装单一事实源 |
 | `tools_manager.py` | 工具注册与执行，内置子代理（`task`）独立执行循环 |
@@ -61,6 +62,7 @@ python loop.py    # 启动目录即沙箱根；q / exit 退出
 | [TASK_MANAGER.md](docs/TASK_MANAGER.md) | `task_manager.py` |
 | [AGENT_TEAMS.md](docs/AGENT_TEAMS.md) | `message_bus.py` / `worktree_manager.py` / `agent_teams_manager.py` |
 | [MCP_TOOLS.md](docs/MCP_TOOLS.md) | `mcp_manager.py` |
+| [INTEGRATED_HARNESS.md](docs/INTEGRATED_HARNESS.md) | `recovery.py` / `loop.py` / `permission.py` |
 | [MEMORY_MANAGER.md](docs/MEMORY_MANAGER.md) | `memory_manager.py` |
 | [PROMPT.md](docs/PROMPT.md) | 测试专用提示词（手工验证用） |
 
